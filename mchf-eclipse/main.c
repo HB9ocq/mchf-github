@@ -351,7 +351,7 @@ void TransceiverStateInit(void)
 	ts.tx_iq_fm_gain_balance = 0;
 	//
 	ts.tune_freq		= 0;
-	ts.tune_freq_old	= 0;
+	 //ts.tune_freq_old	= 0;
 	//
 //	ts.calib_mode		= 0;					// calibrate mode
 	ts.menu_mode		= 0;					// menu mode
@@ -517,6 +517,7 @@ void TransceiverStateInit(void)
 	ts.tp_present = 0;						// default no touchscreen
 	ts.tp_x = 0xFF;							// invalid position
 	ts.tp_y = 0xFF;							// invalid position
+	ts.tp_state = 0;						// touchscreen state machine init
 	ts.show_tp_coordinates = 0;					// dont show coordinates on LCD
 	ts.rfmod_present = 0;						// rfmod not present
 	ts.vhfuhfmod_present = 0;					// VHF/UHF mod not present
@@ -527,7 +528,12 @@ void TransceiverStateInit(void)
 	ts.cat_band_index =255;						// no CAT command arrived
 	ts.sam_enabled = 0;						// demodulation mode SAM not enabled
 	ts.notch_enabled = 0;
-	//ts.filter_path = 52; // uncomment to use  filter path of given number -1 (hack, filter path is used all the time)
+	ts.peak_enabled = 0;
+	ts.spectrum_light = 0;					// light spectrum display without grid and points instead of bars
+	ts.notch_frequency = 800;				// notch start frequency for manual notch filter
+	ts.peak_frequency = 750;				// peak start frequency
+	ts.bass_gain = 2;						// gain of the low shelf EQ filter
+	ts.treble_gain = 0;						// gain of the high shelf EQ filter
 }
 
 //*----------------------------------------------------------------------------
@@ -798,11 +804,11 @@ void ConfigurationStorage_Init() {
 
 void CheckIsTouchscreenPresent(void)
 {
-	UiLcdHy28_GetTouchscreenCoordinates(0);				// initial reading of XPT2046
+	UiLcdHy28_ReadTcData();
 	if(ts.tp_x != 0xff && ts.tp_y != 0xff && ts.tp_x != 0 && ts.tp_y != 0) // touchscreen data valid?
 	    ts.tp_present = 1;						// yes - touchscreen present!
-	else
-	    ts.tp_x = ts.tp_y = 0xff;
+
+	ts.tp_state = 0xff;
 }
 
 int main(void)
@@ -839,19 +845,6 @@ int main(void)
 
 	// test if touchscreen is present
 	CheckIsTouchscreenPresent();
-
-	// Init the RX Hilbert transform/filter prior
-	// to initializing the audio!
-	//
-	AudioFilter_InitRxHilbertFIR();
-//	AudioFilter_CalcRxPhaseAdj();
-	//
-	// Init TX Hilbert transform/filter
-	//
-//	AudioFilter_CalcTxPhaseAdj();	//
-	AudioFilter_InitTxHilbertFIR();
-	// Audio HW init
-	// audio_driver_init();
 
 	// Usb Host driver init
 	//keyb_driver_init();

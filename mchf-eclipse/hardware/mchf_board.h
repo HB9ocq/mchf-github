@@ -37,6 +37,7 @@
 #include "stm32f4xx.h"
 #include "mchf_types.h"
 #include "audio_filter.h"
+#include "ui_si570.h"
 //
 //
 //
@@ -483,7 +484,10 @@ extern const ButtonMap  bm[BUTTON_NUM];
 #define	MAX_BANDS			17		// Highest band number:  17 = General coverage (RX only) band
 #define	MAX_BAND_NUM		(MAX_BANDS+1)		// Number of Bands
 
-#define	KHZ_MULT			4000	// multiplier to convert oscillator frequency or band size to display kHz, used below
+//  multiplier to convert between dial_freq and tune_freq
+#define TUNE_MULT 4
+
+#define	KHZ_MULT			(TUNE_MULT*1000)	// multiplier to convert oscillator frequency or band size to display kHz, used below
 //
 // Bands definition
 // - ID
@@ -586,23 +590,27 @@ extern const ButtonMap  bm[BUTTON_NUM];
 // encoder one
 #define ENC_ONE_MODE_AUDIO_GAIN		0
 #define ENC_ONE_MODE_ST_GAIN		1
-#define ENC_ONE_MAX_MODE		1
+#define ENC_ONE_MAX_MODE			1
 //
 // encoder two
 #define ENC_TWO_MODE_RF_GAIN		0
 #define ENC_TWO_MODE_SIG_PROC		1
-#define ENC_TWO_MAX_MODE		2
+#define ENC_TWO_MODE_NOTCH_F		2
+#define ENC_TWO_MODE_PEAK_F			3
+#define ENC_TWO_MODE_BASS_GAIN		4
+#define ENC_TWO_MODE_TREBLE_GAIN	5
+#define ENC_TWO_MAX_MODE			6
 //
 // encoder three
-#define ENC_THREE_MODE_RIT		0
+#define ENC_THREE_MODE_RIT			0
 #define ENC_THREE_MODE_CW_SPEED		1
-#define ENC_THREE_MAX_MODE		2
+#define ENC_THREE_MAX_MODE			2
 //
 //
-#define CW_MODE_IAM_B			0
-#define CW_MODE_IAM_A			1
-#define CW_MODE_STRAIGHT		2
-#define CW_MAX_MODE			3
+#define CW_MODE_IAM_B				0
+#define CW_MODE_IAM_A				1
+#define CW_MODE_STRAIGHT			2
+#define CW_MAX_MODE					3
 
 // PA power level setting enumeration
 enum {
@@ -679,14 +687,22 @@ enum {
 	SPEC_WHITE = 0,
 	SPEC_GREY,
 	SPEC_BLUE,
-	SPEC_RED,
+	SPEC_RED1,
+	SPEC_RED2,
+	SPEC_RED3,
 	SPEC_MAGENTA,
 	SPEC_GREEN,
 	SPEC_CYAN,
 	SPEC_YELLOW,
 	SPEC_ORANGE,
+	SPEC_CREAM,
 	SPEC_BLACK,
+	SPEC_GREY1,
 	SPEC_GREY2,
+	SPEC_GREY3,
+	SPEC_GREY4,
+	SPEC_GREY5,
+	SPEC_GREY6,
 	SPEC_MAX_COLOUR,
 };
 //
@@ -807,7 +823,7 @@ typedef struct TransceiverState
 
 	// Frequency synthesizer
 	ulong	tune_freq;			// main synthesizer frequency
-	ulong	tune_freq_old;		// used to detect change of main synthesizer frequency
+	// ulong	tune_freq_old;		// used to detect change of main synthesizer frequency
 
 	// Transceiver calibration mode flag
 	//uchar	calib_mode;
@@ -953,7 +969,8 @@ typedef struct TransceiverState
 										// LSB+2 = 1 if DSP Notch mode is on (| 4)
 										// LSB+3 = 0 if DSP is to be displayed on screen instead of NB (| 8)
 										// MSB	 = 1 if button G2 toggle NOT initialized (| 128)
-	uchar digital_mode;					// holds actual digital mode
+	uchar	dsp_mode;					// holds the mode chosen in the DSP
+	uchar 	digital_mode;				// holds actual digital mode
 	uchar	dsp_active_toggle;			// holder used on the press-hold of button G2 to "remember" the previous setting
 	uchar	dsp_nr_strength;			// "Strength" of DSP Noise reduction - to be converted to "Mu" factor
 	ulong	dsp_nr_delaybuf_len;		// size of DSP noise reduction delay buffer
@@ -968,6 +985,9 @@ typedef struct TransceiverState
 	bool	reset_dsp_nr;				// TRUE if DSP NR coefficients are to be reset when "audio_driver_set_rx_audio_filter()" is called
 	//
 	uchar	lcd_backlight_brightness;	// LCD backlight brightness, 0-3:  0 = full, 3 = dimmest
+
+#define LCD_BLANKING_ENABLE 0x80
+#define LCD_BLANKING_TIMEMASK 0x0f
 	uchar	lcd_backlight_blanking;		// for controlling backlight auto-off control
 	//
 	uchar	tune_step;					// Used for press-and-hold tune step adjustment
@@ -975,9 +995,12 @@ typedef struct TransceiverState
 	//
 	bool	frequency_lock;				// TRUE if frequency knob is locked
 	//
+#define TX_DISABLE_ALWAYS       1
+#define TX_DISABLE_USER         2
+#define TX_DISABLE_OUTOFRANGE	4
 	uchar	tx_disable;					// TRUE if transmit is to be disabled
 	//
-    #define MISC_FLAGS1_TX_AUTOSWITCH_UI 0x01
+    #define MISC_FLAGS1_TX_AUTOSWITCH_UI_DISABLE 0x01
 	#define MISC_FLAGS1_SWAP_BAND_BTN 0x02
     #define MISC_FLAGS1_MUTE_LINEOUT_TX 0x04
     #define MISC_FLAGS1_AM_TX_FILTER_DISABLE 0x08
@@ -1067,28 +1090,36 @@ typedef struct TransceiverState
 	uchar	ser_eeprom_in_use;			// 0xFF = not in use, 0x1 = in use
 	uint8_t* eeprombuf;				// pointer to copy of config in RAM
 	uchar 	tp_present;				// touchscreen present = 1, absent = 0
-	uint8_t tp_x;					// touchscreen x coordinate
-	uint8_t tp_y;					// touchscreen y coordinate
-	bool	show_tp_coordinates;			// show coordinates on LCD
-	uchar	rfmod_present;				// 0 = not present
-	uchar	vhfuhfmod_present;			// 0 = not present
+	char 	tp_x;					// touchscreen x coordinate
+	char	tp_y;					// touchscreen y coordinate
+	uchar	tp_state;				// touchscreen state machine
+	bool	show_tp_coordinates;	// show coordinates on LCD
+	uchar	rfmod_present;			// 0 = not present
+	uchar	vhfuhfmod_present;		// 0 = not present
 	uchar	multi;					// actual translate factor
-	uchar	tune_power_level;			// TX power in antenna tuning function
+	uchar	tune_power_level;		// TX power in antenna tuning function
 	uchar	power_temp;				// temporary tx power if tune is different from actual tx power
-	bool	cat_in_sandbox;				// CAT tuning in sandbox
-	uchar	cat_band_index;				// buffered bandindex before first CAT command arrived
-	bool	sam_enabled;				// demodulation mode SAM enabled
+	bool	cat_in_sandbox;			// CAT tuning in sandbox
+	uchar	cat_band_index;			// buffered bandindex before first CAT command arrived
+	bool	sam_enabled;			// demodulation mode SAM enabled
 	bool 	notch_enabled;			// notch_filter enabled
+	bool	spectrum_light;			// light-weight spectrum display
 	uchar	xlat;					// CAT <> IQ-Audio
-	bool	dynamic_tuning_active;			// dynamic tuning active by estimating the encoder speed
-//	uint16_t df8oe_test;				// only debugging use
+	bool	dynamic_tuning_active;	// dynamic tuning active by estimating the encoder speed
+	ulong	notch_frequency;		// frequency of the manual notch filter
+	bool 	peak_enabled;			// indicates whether peak filter is enabled or not
+	ulong	peak_frequency;			// frequency of the manual peak filter
+	int		bass_gain;				// gain of the low shelf EQ filter
+	int		treble_gain;			// gain of the high shelf EQ filter
 
-	uint8_t display_type;           		// existence/identification of display type
-	uint32_t audio_int_counter;			// used for encoder timing - test DL2FW
-	unsigned short DeviceCode;			// LCD ident code
-	bool USE_NEW_PHASE_CORRECTION; // used to test new phase correction
+	uint8_t display_type;           // existence/identification of display type
+	uint32_t audio_int_counter;		// used for encoder timing - test DL2FW
+	unsigned short DeviceCode;		// LCD ident code
+	bool USE_NEW_PHASE_CORRECTION; 	// used to test new phase correction
 	bool encoder3state;
-	uchar c_line;			// position of center line
+	int bc_band;
+	uchar c_line;					// position of center line
+	Si570_ResultCodes last_lo_result;			// used in dynamic tuning to hold frequency color
 } TransceiverState;
 //
 extern __IO TransceiverState ts;
@@ -1130,6 +1161,7 @@ uint16_t Write_SerEEPROM(uint16_t addr, uint16_t value);
 void copy_virt2ser(void);
 void copy_ser2virt(void);
 void verify_servirt(void);
+void mchf_reboot();
 
 // in main.c
 void CriticalError(ulong error);

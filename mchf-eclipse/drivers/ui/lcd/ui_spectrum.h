@@ -16,11 +16,13 @@
 #include "mchf_board.h"
 #include "mchf_types.h"
 #include "audio_driver.h"
+#include "arm_const_structs.h"
 
 void UiSpectrumInitSpectrumDisplay();
 void UiSpectrumClearDisplay();
 void UiSpectrumReDrawWaterfall();
 void UiSpectrumReDrawScopeDisplay();
+void UiSpectrumCreateDrawArea(void);
 
 
 // Spectrum scope operational constants
@@ -49,7 +51,7 @@ void UiSpectrumReDrawScopeDisplay();
 #define SPECTRUM_SCOPE_SPEED_DEFAULT		5
 //
 #define SPECTRUM_SCOPE_FILTER_MIN			1	// minimum filter setting
-#define	SPECTRUM_SCOPE_FILTER_MAX			10	// maximum filter setting
+#define	SPECTRUM_SCOPE_FILTER_MAX			20	// maximum filter setting
 #define SPECTRUM_SCOPE_FILTER_DEFAULT		4	// default filter setting
 //
 #define	SPECTRUM_SCOPE_AGC_MIN				1	// minimum spectrum scope AGC rate setting
@@ -103,6 +105,9 @@ void UiSpectrumReDrawScopeDisplay();
 // Spectrum hight is bit lower that the whole control
 #define SPECTRUM_HEIGHT			(POS_SPECTRUM_IND_H - 10)
 //
+// How much larger than the NORMAL spectrum display should the BIG Spectrum display be?
+#define SPEC_LIGHT_MORE_POINTS 15
+//
 // Dependent on FFT samples,but should be less than control width!
 #define SPECTRUM_WIDTH			256
 
@@ -110,14 +115,15 @@ void UiSpectrumReDrawScopeDisplay();
 typedef struct SpectrumDisplay
 {
     // FFT state
-    arm_rfft_instance_f32           S;
+//    arm_rfft_instance_f32           S;  // old, depricated FFT routine, do not use
+	arm_cfft_instance_f32           C; // new FFT routine for complex FFT
 
-    arm_cfft_radix4_instance_f32    S_CFFT;
+//	arm_cfft_radix4_instance_f32    S_CFFT; // old, depricated FFT routine, do not use
 
     // Samples buffer
     //
     float32_t   FFT_Samples[FFT_IQ_BUFF_LEN];
-    float32_t   FFT_Windat[FFT_IQ_BUFF_LEN];
+//    float32_t   FFT_Windat[FFT_IQ_BUFF_LEN];
     float32_t   FFT_MagData[FFT_IQ_BUFF_LEN/2];
     q15_t   FFT_BkpData[FFT_IQ_BUFF_LEN];
     q15_t   FFT_DspData[FFT_IQ_BUFF_LEN];       // Rescaled and de-linearized display data
@@ -134,7 +140,7 @@ typedef struct SpectrumDisplay
     ushort  vert_grid_id[7];
 
     // Addresses of horizontal grid lines on x axis
-    ushort  horz_grid_id[3];
+    ushort  horz_grid_id[5];
 
     // State machine current state
     uchar   state;

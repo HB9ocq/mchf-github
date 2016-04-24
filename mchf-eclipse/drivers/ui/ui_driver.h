@@ -17,6 +17,16 @@
 
 #include "mchf_board.h"
 
+// used by UpdateFrequency* family of functions
+enum UpdateFrequencyMode_t {
+    UFM_AUTOMATIC = 0,
+    UFM_LARGE,
+    UFM_SMALL_RX,
+    UFM_SMALL_TX,
+    UFM_SECONDARY
+
+};
+
 
 // SI570 startup value (receive freq * 4)
 //#define 	STARTUP_FREQ					112000000
@@ -178,8 +188,7 @@ enum	{
 //
 enum	{
 	WATERFALL_NORMAL=0,
-	WATERFALL_MEDIUM,
-	WATERFALL_MAX
+	WATERFALL_BIG
 };
 //
 enum	{
@@ -324,12 +333,9 @@ typedef struct LoTcxo
 	// loaded to LO
 	int		comp;
 
-	uchar	sensor_present;
-
-	uchar	v1000;
-	uchar	v10000;
-	uchar	v100000;
-	uchar	v1000000;
+	bool	sensor_absent;
+	bool    lo_error;
+	int   last;
 
 } LoTcxo;
 
@@ -498,7 +504,7 @@ typedef struct EepromSave
 #define POS_PWRN_IND_Y				193
 #define POS_PWR_IND_X				4
 #define POS_PWR_IND_Y				(POS_PWRN_IND_Y + 15)
-#define COL_PWR_IND				Grey2
+#define COL_PWR_IND					White
 
 #define POS_TEMP_IND_X				0
 #define POS_TEMP_IND_Y				0
@@ -508,18 +514,17 @@ typedef struct EepromSave
 // Exports
 void 	ui_driver_init(void);
 void 	ui_driver_thread(void);
-void 	ui_driver_toggle_tx(void);
+
 void 	UiDriverLoadFilterValue(void);
-void 	UiSpectrumClearDisplay(void);
 //
-void 	UiDriverChangeBandFilter(uchar band);
+void 	RadioManagement_ChangeBandFilter(uchar band);
 void 	UiDriverChangeFilterDisplay(void);
 void 	UiDriverCreateTemperatureDisplay(uchar enabled,uchar create);
-void 	UiDriverUpdateFrequency(char skip_encoder_check, uchar mode);
-void 	UiSpectrumCreateDrawArea(void);
-void 	UiDriverUpdateFrequencyFast(void);
+void 	UiDriverUpdateFrequency(bool force_update, enum UpdateFrequencyMode_t mode);
+
+void    UiDriver_FrequencyUpdateLOandDisplay(bool full_update);
 void 	UiDriverSetBandPowerFactor(uchar band);
-void 	UiDrawSpectrumScopeFrequencyBarText(void);
+
 //
 //void 	UiDriverChangeFilter(uchar ui_only_update);
 void 	UiDriverSetBandPowerFactor(uchar band);
@@ -540,7 +545,7 @@ void 	UiCWSidebandMode(void);
 void 	UiDriverDisplayFilterBW(void);
 void 	UiDriverShowMode(void);
 //
-void	UiLCDBlankTiming(void);
+void	UiDriver_LcdBlankingStartTimer(void);
 void	UiDriverShowDebugText(char*);
 void 	UiDriverChangeTuningStep(uchar is_up);
 //
@@ -552,9 +557,12 @@ void    UiDriver_KeyTestScreen();
 
 bool	check_tp_coordinates(uint8_t,uint8_t,uint8_t,uint8_t);
 
+void RadioManagement_SwitchTXRX(uint8_t txrx_mode);
+void RadioManagement_UpdateFrequencyFast(uint8_t txrx_mode);
+
 void UiDriverSetDemodMode(uint32_t new_mode); // switch to different demodulation mode.
 
-void UiDriver_DoCrossCheck(uchar cross[]);
+void UiDriver_DoCrossCheck(char cross[],char* xt_corr, char* yt_corr);
 //
 // Items that are timed using ts.sysclock (operates at 100 Hz)
 //
@@ -578,13 +586,13 @@ STATE_S_METER = 0,				//
 STATE_SWR_METER,				//
 STATE_HANDLE_POWERSUPPLY,		//
 STATE_LO_TEMPERATURE,			//
+STATE_SWITCH_OFF_PTT,            //
 STATE_TASK_CHECK,				//
 STATE_CHECK_ENC_ONE,			//
 STATE_CHECK_ENC_TWO,			//
 STATE_CHECK_ENC_THREE,			//
 STATE_UPDATE_FREQUENCY,			//
 STATE_PROCESS_KEYBOARD,			//
-STATE_SWITCH_OFF_PTT			//
 };
 //
 // Used for press-and-hold "temporary" step size adjust
@@ -593,6 +601,8 @@ STATE_SWITCH_OFF_PTT			//
 #define	STEP_PRESS_MINUS			1
 #define	STEP_PRESS_PLUS				2
 //
+
+#define VALID_TP_DATASETS			8	// number of sets that must be identical for marked as VALID
 
 // ------------------------------------------------
 // Keypad state

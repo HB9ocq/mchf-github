@@ -239,7 +239,7 @@ void CatDriverFT817CheckAndExecute() {
 				}
 				f *= 40;
 				df.tune_new = f - fdelta;
-				UiDriverUpdateFrequency(true,0);
+				UiDriver_FrequencyUpdateLOandDisplay(true);
 				resp[0] = 0;
 				bc = 1;
 			if(ts.cat_in_sandbox)			// if running in sandbox store active band
@@ -253,7 +253,7 @@ void CatDriverFT817CheckAndExecute() {
 			
 			if(ts.xlat == 0)
 			    {
-			    fdelta = (ts.tx_audio_source == TX_AUDIO_DIGIQ)?audio_driver_xlate_freq()*4:0;
+			    fdelta = (ts.tx_audio_source == TX_AUDIO_DIGIQ)?audio_driver_xlate_freq()*TUNE_MULT:0;
 			    // If we are in DIGITAL IQ Output mode, send real tune frequency frequency instead
 			    // translated RX frequency
 			    }
@@ -280,6 +280,7 @@ void CatDriverFT817CheckAndExecute() {
 			case DEMOD_USB: resp[4] = 1; break;
 			case DEMOD_CW: 	resp[4] = 2 + (ts.cw_lsb==true?1:0); break;
 			// return 3 if CW in LSB aka CW-R
+			case DEMOD_SAM:
 			case DEMOD_AM:  resp[4] = 4; break;
 			case DEMOD_FM:  resp[4] = 8; break;
 			default: resp[4] = 1;

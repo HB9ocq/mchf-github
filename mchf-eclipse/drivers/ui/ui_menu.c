@@ -262,14 +262,22 @@ void __attribute__ ((noinline)) UiMenu_MapColors(uint32_t color ,char* options,v
 	switch(color) {
 	case SPEC_WHITE: 	*clr_ptr = White;	clr_str = " Wht"; 	break;
 	case SPEC_BLUE:  	*clr_ptr = Blue; 	clr_str = " Blu"; 	break;
-	case SPEC_RED: 		*clr_ptr = Red; 	clr_str = " Red"; 	break;
-	case SPEC_MAGENTA: 	*clr_ptr = Magenta; 	clr_str = " Mag"; 	break;
+	case SPEC_RED1: 	*clr_ptr = Red; 	clr_str = "Red1"; 	break;
+	case SPEC_RED2: 	*clr_ptr = Red2; 	clr_str = "Red2"; 	break;
+	case SPEC_RED3: 	*clr_ptr = Red3; 	clr_str = "Red3"; 	break;
+	case SPEC_MAGENTA: 	*clr_ptr = Magenta; clr_str = " Mag"; 	break;
 	case SPEC_GREEN: 	*clr_ptr = Green; 	clr_str = " Grn"; 	break;
 	case SPEC_CYAN: 	*clr_ptr = Cyan; 	clr_str = " Cyn"; 	break;
 	case SPEC_YELLOW: 	*clr_ptr = Yellow; 	clr_str = " Yel"; 	break;
 	case SPEC_BLACK: 	*clr_ptr = Grid; 	clr_str = " Blk"; 	break;
 	case SPEC_ORANGE: 	*clr_ptr = Orange; 	clr_str = " Org"; 	break;
-	case SPEC_GREY2: 	*clr_ptr = Grey; 	clr_str = "GRY2"; 	break;
+	case SPEC_CREAM: 	*clr_ptr = Cream; 	clr_str = " Crm"; 	break;
+	case SPEC_GREY1: 	*clr_ptr = Grey1; 	clr_str = "Gry1"; 	break;
+	case SPEC_GREY2: 	*clr_ptr = Grey2; 	clr_str = "Gry2"; 	break;
+	case SPEC_GREY3: 	*clr_ptr = Grey3; 	clr_str = "Gry3"; 	break;
+	case SPEC_GREY4: 	*clr_ptr = Grey4; 	clr_str = "Gry4"; 	break;
+	case SPEC_GREY5: 	*clr_ptr = Grey6; 	clr_str = "Gry5"; 	break;
+	case SPEC_GREY6: 	*clr_ptr = Grey; 	clr_str = " Gry"; 	break;
 	default: 			*clr_ptr = Grey; 	clr_str = " Gry";
 	}
 	if (options != NULL) {
@@ -432,6 +440,7 @@ const MenuDescriptor displayGroup[] = {
     { MENU_DISPLAY, MENU_ITEM, MENU_SCOPE_AGC_ADJUST,"106","Spec/Wfall AGC Adj."},
     { MENU_DISPLAY, MENU_ITEM, MENU_SCOPE_DB_DIVISION,"107","Spec Scope Ampl."},
     { MENU_DISPLAY, MENU_ITEM, MENU_SCOPE_CENTER_LINE_COLOUR,"108","Spec/Wfall Line"},
+    { MENU_DISPLAY, MENU_ITEM, MENU_SCOPE_LIGHT_ENABLE,"99","Spectrum Light"},
     { MENU_DISPLAY, MENU_ITEM, MENU_SCOPE_MODE,"109","Scope/Waterfall"},
     { MENU_DISPLAY, MENU_ITEM, MENU_WFALL_COLOR_SCHEME,"110","Wfall Colours"},
     { MENU_DISPLAY, MENU_ITEM, MENU_WFALL_STEP_SIZE,"111","Wfall Step Size"},
@@ -440,7 +449,7 @@ const MenuDescriptor displayGroup[] = {
     { MENU_DISPLAY, MENU_ITEM, MENU_WFALL_SPEED,"114","Wfall 1/Speed"},
     { MENU_DISPLAY, MENU_ITEM, MENU_SCOPE_NOSIG_ADJUST,"115","Scope NoSig Adj."},
     { MENU_DISPLAY, MENU_ITEM, MENU_WFALL_NOSIG_ADJUST,"116","Wfall NoSig Adj."},
-    { MENU_DISPLAY, MENU_ITEM, MENU_WFALL_SIZE,"117","Wfall Size"},
+    { MENU_DISPLAY, MENU_ITEM, MENU_WFALL_SIZE,"117","Scope/Wfall Size"},
     { MENU_DISPLAY, MENU_STOP, 0, "   " , NULL }
 };
 
@@ -1228,7 +1237,7 @@ bool __attribute__ ((noinline)) UiDriverMenuBandPowerAdjust(int var, uint8_t mod
 		if(tchange)	{		// did something change?
 			UiDriverSetBandPowerFactor(ts.band);	// yes, update the power factor
 			if(!ts.iq_freq_mode)	// Is translate mode *NOT* active?
-				Codec_SidetoneSetgain();				// adjust the sidetone gain
+				Codec_SidetoneSetgain(ts.txrx_mode);				// adjust the sidetone gain
 		}
 	}
 	else	// not enabled
@@ -1499,10 +1508,7 @@ static void UiDriverUpdateMenuLines(uchar index, uchar mode, int pos)
 			strcpy(options, "  OFF");		// Say that it is OFF!
 			clr = Red;
 		}
-		//
-		// disp_shift = 1;
 		break;
-	//
 	case MENU_AGC_MODE:	// AGC mode
 		fchange = UiDriverMenuItemChangeUInt8(var, mode, &ts.agc_mode,
 						0,
@@ -1630,7 +1636,7 @@ static void UiDriverUpdateMenuLines(uchar index, uchar mode, int pos)
 						FREQ_IQ_CONV_MODE_DEFAULT,
 						1
 						);
-		// disp_shift = 1;
+
 		if(!ts.iq_freq_mode)	{
 			sprintf(options,">> OFF! <<");
 			clr = Red3;
@@ -1650,7 +1656,7 @@ static void UiDriverUpdateMenuLines(uchar index, uchar mode, int pos)
 		//
 		//
 		if(fchange)	{	// update parameters if changed
-			UiDriverUpdateFrequency(2,0);	// update frequency display without checking encoder, unconditionally updating synthesizer
+		    UiDriver_FrequencyUpdateLOandDisplay(true);	// update frequency display without checking encoder, unconditionally updating synthesizer
 		}
 		//
 		break;
@@ -1702,7 +1708,7 @@ static void UiDriverUpdateMenuLines(uchar index, uchar mode, int pos)
 							);
 		}
 		if(fchange)	{
-			Codec_MicBoostCheck();
+			Codec_MicBoostCheck(ts.txrx_mode);
 		}
 		//
 		if(fchange)	{		// update on-screen info if there was a change
@@ -1880,7 +1886,7 @@ static void UiDriverUpdateMenuLines(uchar index, uchar mode, int pos)
 
 		if((ts.dmod_mode == DEMOD_CW) && (fchange))	{
 			softdds_setfreq((float)ts.sidetone_freq,ts.samp_rate,0);
-			UiDriverUpdateFrequency(2,0);	// update frequency display without checking encoder, unconditionally updating synthesizer
+			UiDriver_FrequencyUpdateLOandDisplay(false);
 		}
 		//
 		sprintf(options, "  %uHz", (uint)ts.sidetone_freq);
@@ -1940,17 +1946,13 @@ static void UiDriverUpdateMenuLines(uchar index, uchar mode, int pos)
 				sprintf(options, "     ERROR!");
 				break;
 		}
-		//
+
 		if(fchange)	{	// update parameters if changed
 			UiCWSidebandMode();
 			UiDriverShowMode();
-			UiDriverUpdateFrequency(2,0);	// update frequency display without checking encoder, unconditionally updating synthesizer
+			UiDriver_FrequencyUpdateLOandDisplay(true);	// update frequency display and local oscillator
 		}
-		//
-		// disp_shift = 1;	// shift left to allow more room
-		//
 		break;
-	//
 	case MENU_TCXO_MODE:	// TCXO On/Off
 		temp_sel = (df.temp_enabled & 0x0f);		// get current setting without upper nibble
 		fchange = UiDriverMenuItemChangeUInt8(var, mode, &temp_sel,
@@ -1959,12 +1961,12 @@ static void UiDriverUpdateMenuLines(uchar index, uchar mode, int pos)
 						TCXO_OFF,
 						1
 						);
-		//
-		if(lo.sensor_present)			// no sensor present
+
+		if(lo.sensor_absent)			// no sensor present
 			temp_sel = TCXO_OFF;	// force TCXO disabled
-		//
+
 		df.temp_enabled = temp_sel | (df.temp_enabled & 0xf0);	// overlay new temperature setting with old status of upper nibble
-		//
+
 		if(temp_sel == TCXO_OFF)	{
 			strcpy(options, " OFF");
 			if(fchange)
@@ -1989,7 +1991,7 @@ static void UiDriverUpdateMenuLines(uchar index, uchar mode, int pos)
 			temp_sel = 1;	// yes - set to 1
 		else
 			temp_sel = 0;	// no - Celsius
-		//
+
 		if((df.temp_enabled & 0x0f) != TCXO_STOP)	{	// is temperature display enabled at all?
 			if(df.temp_enabled & 0xf0)	// Yes - Is Fahrenheit mode enabled?
 				temp_sel = 1;	// yes - set to 1
@@ -2003,7 +2005,6 @@ static void UiDriverUpdateMenuLines(uchar index, uchar mode, int pos)
 							1
 							);
 
-			//
 			if(temp_sel)					// Fahrenheit mode?
 				df.temp_enabled |= 0xf0;	// set upper nybble
 			else							// Celsius mode?
@@ -2050,7 +2051,7 @@ static void UiDriverUpdateMenuLines(uchar index, uchar mode, int pos)
 	case MENU_SCOPE_TRACE_COLOUR:	// spectrum scope trace colour
 		fchange = UiDriverMenuItemChangeUInt8(var, mode, &ts.scope_trace_colour,
 						0,
-						SPEC_ORANGE,
+						SPEC_MAX_COLOUR,
 						SPEC_COLOUR_TRACE_DEFAULT,
 						1
 						);
@@ -2060,7 +2061,7 @@ static void UiDriverUpdateMenuLines(uchar index, uchar mode, int pos)
 	case MENU_SCOPE_GRID_COLOUR:	// spectrum scope grid colour
 		fchange = UiDriverMenuItemChangeUInt8(var, mode, &ts.scope_grid_colour,
 						0,
-						SPEC_BLACK,
+						SPEC_MAX_COLOUR,
 						SPEC_COLOUR_GRID_DEFAULT,
 						1
 						);
@@ -2070,14 +2071,12 @@ static void UiDriverUpdateMenuLines(uchar index, uchar mode, int pos)
 	case MENU_SCOPE_SCALE_COLOUR:	// spectrum scope/waterfall  scale colour
 		fchange = UiDriverMenuItemChangeUInt8(var, mode, &ts.scope_scale_colour,
 						0,
-						SPEC_BLACK,
+						SPEC_MAX_COLOUR,
 						SPEC_COLOUR_SCALE_DEFAULT,
 						1
 						);
 		UiMenu_MapColors(ts.scope_scale_colour,options,&clr);
-		// disp_shift = 1;
 		break;
-		//
 	case MENU_SCOPE_MAGNIFY:	// Spectrum 2x magnify mode on/off
 		UiDriverMenuItemChangeEnableOnOff(var, mode, &sd.magnify,0,options,&clr);
 		break;
@@ -2143,6 +2142,12 @@ static void UiDriverUpdateMenuLines(uchar index, uchar mode, int pos)
 			UiMenu_MapColors(ts.scope_centre_grid_colour,options,&clr);
 						break;
 			//
+		case MENU_SCOPE_LIGHT_ENABLE:	// Spectrum light: no grid, larger, only points, no bars
+			temp_var = ts.spectrum_light;
+			fchange = UiDriverMenuItemChangeEnableOnOff(var, mode, &temp_var,0,options,&clr);
+			if(fchange)
+			    ts.spectrum_light = temp_var;
+			break;
 		case MENU_SCOPE_MODE:
 			temp_sel = (ts.misc_flags1 & MISC_FLAGS1_WFALL_SCOPE_TOGGLE)?1:0;
 
@@ -2265,14 +2270,14 @@ static void UiDriverUpdateMenuLines(uchar index, uchar mode, int pos)
 		case MENU_WFALL_SIZE:	// set step size of of waterfall display?
 			UiDriverMenuItemChangeUInt8(var, mode, &ts.waterfall_size,
 						0,
-						WATERFALL_MAX,
+						WATERFALL_BIG,
 						WATERFALL_SIZE_DEFAULT,
 						1
 						);
 			//
 			switch(ts.waterfall_size)	{
-				case WATERFALL_MEDIUM:
-					strcpy(options, "Medium");
+				case WATERFALL_BIG:
+					strcpy(options, "   Big");
 					break;
 				case WATERFALL_NORMAL:
 				default:
@@ -2306,9 +2311,7 @@ static void UiDriverUpdateMenuLines(uchar index, uchar mode, int pos)
 
 			    UiMenu_DisplayValue("Working",Red,opt_pos);
 			    copy_virt2ser();
-			    ui_si570_get_configuration();		// restore SI570 to factory default
-			    *(__IO uint32_t*)(SRAM2_BASE) = 0x55;
-			    NVIC_SystemReset();			// restart mcHF
+			    mchf_reboot();
 			  }
 			}
 			break;
@@ -2430,13 +2433,13 @@ static void UiDriverUpdateConfigMenuLines(uchar index, uchar mode, int pos)
 		}
 		break;
 	case CONFIG_AUDIO_MAIN_SCREEN_MENU_SWITCH:	// AFG/(STG/CMP) and RIT/(WPM/MIC/LIN) are to change automatically with TX/RX
-		temp_var = ts.misc_flags1 & MISC_FLAGS1_TX_AUTOSWITCH_UI;
+		temp_var = ts.misc_flags1 & MISC_FLAGS1_TX_AUTOSWITCH_UI_DISABLE;
 		tchange = UiDriverMenuItemChangeEnableOnOff(var, mode, &temp_var,0,options,&clr);
 		if(tchange)	{
 			if(temp_var)	// change-on-tx is to be disabled
-				ts.misc_flags1 |= MISC_FLAGS1_TX_AUTOSWITCH_UI;		// set LSB
+				ts.misc_flags1 |= MISC_FLAGS1_TX_AUTOSWITCH_UI_DISABLE;		// set LSB
 			else			// change-on-tx is to be enabled
-				ts.misc_flags1 &= ~MISC_FLAGS1_TX_AUTOSWITCH_UI;		// clear LSB
+				ts.misc_flags1 &= ~MISC_FLAGS1_TX_AUTOSWITCH_UI_DISABLE;		// clear LSB
 		}
 		break;
 	case CONFIG_MUTE_LINE_OUT_TX:	// Enable/disable MUTE of TX audio on LINE OUT
@@ -2462,26 +2465,26 @@ static void UiDriverUpdateConfigMenuLines(uchar index, uchar mode, int pos)
 		break;
 	case CONFIG_LCD_AUTO_OFF_MODE:	// LCD auto-off mode control
 		temp_var = ts.lcd_backlight_blanking;		// get control variable
-		temp_var &= 0x0f;							// mask off upper nybble
+		temp_var &= LCD_BLANKING_TIMEMASK;							// mask off upper nybble
 		tchange = UiDriverMenuItemChangeUInt8(var, mode, &temp_var,
 				0,
-				0x0f,
+				LCD_BLANKING_TIMEMASK,
 				BACKLIGHT_BLANK_TIMING_DEFAULT,
 				1
 				);
 		if(tchange)			{					// timing has been changed manually
 			if(temp_var)	{				// is the time non-zero?
 				ts.lcd_backlight_blanking = temp_var;	// yes, copy current value into variable
-				ts.lcd_backlight_blanking |= 0x80;		// set MSB to enable auto-blanking
+				ts.lcd_backlight_blanking |= LCD_BLANKING_ENABLE;		// set MSB to enable auto-blanking
 			}
 			else {
 				ts.lcd_backlight_blanking = 0;			// zero out variable
 			}
-			UiLCDBlankTiming();		// update the LCD timing parameters
+			UiDriver_LcdBlankingStartTimer();		// update the LCD timing parameters
 		}
 		//
-		if(ts.lcd_backlight_blanking & 0x80)			// timed auto-blanking enabled?
-			sprintf(options,"%02d sec",ts.lcd_backlight_blanking & 0x0f);	// yes - Update screen indicator with number of seconds
+		if(ts.lcd_backlight_blanking & LCD_BLANKING_ENABLE)			// timed auto-blanking enabled?
+			sprintf(options,"%02d sec",ts.lcd_backlight_blanking & LCD_BLANKING_TIMEMASK);	// yes - Update screen indicator with number of seconds
 		else
 			sprintf(options,"   OFF");						// Or if turned off
 		break;
@@ -2614,9 +2617,9 @@ static void UiDriverUpdateConfigMenuLines(uchar index, uchar mode, int pos)
 			ts.freq_cal = 0;
 			tchange = 1;
 		}
-		if(tchange)
-			UiDriverUpdateFrequency(2,0);	// Update LO frequency without checking encoder but overriding "frequency didn't change" detect
-		// disp_shift = 1;
+		if(tchange) {
+			UiDriverUpdateFrequency(true,UFM_AUTOMATIC);	// Update LO frequency without checking encoder but overriding "frequency didn't change" detect
+		}
 		sprintf(options, "   %d", ts.freq_cal);
 		break;
 		//
@@ -2959,15 +2962,7 @@ static void UiDriverUpdateConfigMenuLines(uchar index, uchar mode, int pos)
 				0,
 				1);
 		if(tchange)	{		// change?
-			ts.refresh_freq_disp = 1;	// cause frequency display to be completely refreshed
-			if(ts.vfo_mem_mode & 128)	{	// in SPLIT mode?
-				UiDriverUpdateFrequency(1,2);	// update RX frequency
-				UiDriverUpdateFrequency(1,3);	// force display of second (TX) VFO frequency
-			}
-			else	// not in SPLIT mode - standard update
-				UiDriverUpdateFrequency(2,0);	// update frequency display without checking encoder, unconditionally updating synthesizer
-			ts.refresh_freq_disp = 0;
-		}
+		    UiDriver_FrequencyUpdateLOandDisplay(true);		}
 		//
 		if(ts.xverter_mode)	{
 			sprintf(options, " ON x%u", ts.xverter_mode);	// Display on/multiplication factor
@@ -3002,21 +2997,12 @@ static void UiDriverUpdateConfigMenuLines(uchar index, uchar mode, int pos)
 		}
 		//
 		if(tchange)	{		// change?
-			ts.refresh_freq_disp = 1;	// cause frequency display to be completely refreshed
-			if(ts.vfo_mem_mode & 128)	{	// in SPLIT mode?
-				UiDriverUpdateFrequency(1,2);	// update RX frequency
-				UiDriverUpdateFrequency(1,3);	// force display of second (TX) VFO frequency
-			}
-			else	// not in SPLIT mode - standard update
-				UiDriverUpdateFrequency(2,0);	// update frequency display without checking encoder, unconditionally updating synthesizer
-			ts.refresh_freq_disp = 0;
-			tchange = 1;
+		    UiDriver_FrequencyUpdateLOandDisplay(true);
 		}
 		//
 		if(ts.xverter_mode)	// transvert mode active?
 			clr = Red;		// make number red to alert user of this!
-		//
-		// disp_shift = 1;		// cause display to be shifted to the left so that it will fit
+
 		sprintf(options, " %9uHz", (uint)ts.xverter_offset);	// print with nine digits
 		break;
 
@@ -3309,11 +3295,10 @@ static void UiDriverUpdateConfigMenuLines(uchar index, uchar mode, int pos)
 	case CONFIG_FFT_WINDOW_TYPE:	// set step size of of waterfall display?
 		tchange = UiDriverMenuItemChangeUInt8(var, mode, &ts.fft_window_type,
 				0,
-				FFT_WINDOW_MAX,
+				FFT_WINDOW_MAX-1,
 				FFT_WINDOW_DEFAULT,
 				1);
 
-		// disp_shift = 1;
 		switch(ts.fft_window_type)	{
 		case FFT_WINDOW_RECTANGULAR:
 			strcpy(options, "Rectangular");

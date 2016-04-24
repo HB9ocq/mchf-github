@@ -33,6 +33,7 @@
 #include "ui_rotary.h"
 #include "filters.h"
 #include "ui_lcd_hy28.h"
+#include "ui_configuration.h"
 
 
 // SSB filters - now handled in ui_driver to allow I/Q phase adjustment
@@ -94,10 +95,16 @@ static float32_t		iir_aa_state[FIR_RXAUDIO_BLOCK_SIZE + FIR_RXAUDIO_NUM_TAPS];
 static arm_iir_lattice_instance_f32	IIR_AntiAlias;
 //
 // variables for RX manual notch IIR filter
-static float32_t		iir_notch_state[8];
-static arm_biquad_casd_df1_inst_f32	IIR_Notch;
+static arm_biquad_casd_df1_inst_f32 IIR_Notch = {
+		.numStages = 4,
+		.pCoeffs = (float32_t *)(float32_t [])
+		{
+			1,0,0,0,0,1,0,0,0,0	,		1,0,0,0,0,1,0,0,0,0
+		}, // 4 x 5 = 20 coefficients
 
-
+		.pState = (float32_t *)(float32_t [])
+			{0 ,0 ,0 ,0,0,0,0,0,0 ,0 ,0 ,0,0,0,0,0} // 4 x 4 = 16 state variables
+};
 //
 // variables for FM squelch IIR filters
 static float32_t		iir_squelch_rx_state[FIR_RXAUDIO_BLOCK_SIZE + FIR_RXAUDIO_NUM_TAPS];
@@ -264,7 +271,10 @@ void audio_driver_init(void)
 	ads.af_disabled = 0;
 
 	// initialize FFT structure used for snap carrier
-	arm_rfft_init_f32((arm_rfft_instance_f32 *)&sc.S,(arm_cfft_radix4_instance_f32 *)&sc.S_CFFT,FFT_IQ_BUFF_LEN2,1,1);
+//	arm_rfft_init_f32((arm_rfft_instance_f32 *)&sc.S,(arm_cfft_radix4_instance_f32 *)&sc.S_CFFT,FFT_IQ_BUFF_LEN2,1,1);
+	arm_rfft_fast_init_f32((arm_rfft_fast_instance_f32 *)&sc.S, FFT_IQ_BUFF_LEN2);
+
+
 
 #ifdef DEBUG_BUILD
 	printf("audio driver init ok\n\r");
@@ -329,7 +339,6 @@ void audio_driver_set_rx_audio_filter(void)
     	iir_rx_state[i] = 0;
     }
 	IIR_PreFilter.pState = (float32_t *)&iir_rx_state;					// point to state array for IIR filter
-//
 	//
 	// Initialize IIR antialias filter state buffer
  	//
@@ -351,28 +360,14 @@ void audio_driver_set_rx_audio_filter(void)
     }
 	IIR_AntiAlias.pState = (float32_t *)&iir_aa_state;					// point to state array for IIR filter
 
-
 	/*+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-	 * Manual Notch init [DD4WH, april 2016]
+	 * Manual Notch [DD4WH, april 2016]
 	 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++*/
-	//
-	//	Initialize IIR biquad filter for manual notch
-	//
 	// it is only a lightweight filter with one stage (= 2nd order IIR)
 	// but nonetheless very effective
 	//
-	// now it is time for the DSP Audio-EQ-cookbook for generating the coeffs of the notch filter on the fly
+	// DSP Audio-EQ-cookbook for generating the coeffs of the notch filter on the fly
 	// www.musicdsp.org/files/Audio-EQ-Cookbook.txt  [by Robert Bristow-Johnson]
-	//
-//	#define SAMPLING_FREQ 48000; // should this become a global variable?
-/*	float32_t f0 = 2000.0; // notch frequency --> TODO: will be set by encoder2
-	float32_t Q = 100.0; // larger Q gives narrower notch
-	float32_t w0 = 2.0 * PI * f0 / SAMPLING_FREQ;
-	float32_t alpha = sin(w0) / (2.0 * Q);
-	float32_t a0 = 1.0; // gain scaling
-*/
-	float32_t b0,b1,b2,a1,a2;
-
 	//
 	// the ARM algorithm assumes the biquad form
 	// y[n] = b0 * x[n] + b1 * x[n-1] + b2 * x[n-2] + a1 * y[n-1] + a2 * y[n-2]
@@ -383,54 +378,134 @@ void audio_driver_set_rx_audio_filter(void)
 	// y[n] = b0 * x[n] + b1 * x[n-1] + b2 * x[n-2] - a1 * y[n-1] - a2 * y[n-2]
 	//
 	// Therefore, we have to use negated a1 and a2 for use with the ARM function
-	/*// notch implementation
-	b0 = 1.0;
-	b1 = - 2.0 * cos(w0);
-	b2 = 1.0;
-	a0 = 1.0 + alpha;
-	a1 = 2.0 * cos(w0); // already negated!
-	a2 = alpha - 1.0; // already negated!
+	// notch implementation
+	//
+	float32_t FS = 48000; // should this become a global variable?
+	float32_t f0 = ts.notch_frequency;
+	float32_t Q = 10; // larger Q gives narrower notch
+	float32_t w0 = 2 * PI * f0 / FS;
+	float32_t alpha = sin(w0) / (2 * Q);
+	float32_t a0 = 1; // gain scaling
+	float32_t b0,b1,b2,a1,a2;
+	float32_t A, S;
 
-// scaling the coefficients for gain
+	b0 = 1;
+	b1 = - 2 * cos(w0);
+	b2 = 1;
+	a0 = 1 + alpha;
+	a1 = 2 * cos(w0); // already negated!
+	a2 = alpha - 1; // already negated!
+
+	// scaling the coefficients for gain
 	b0 = b0/a0;
 	b1 = b1/a0;
 	b2 = b2/a0;
 	a1 = a1/a0;
 	a2 = a2/a0;
 
-// moderate lowpass filter
-	a1 =  -1.146541271271349860;
-	a2 =  0.414510330578965303;
-	b0 =  0.067632527732130063;
-	b1 =  0.132704003843355428;
-	b2 =  0.067632527732130063;
-*/
-// notch filter 5kHz, width 100Hz
-	a1 =  1.576037749778233190;
-	a2 =  -0.986392502758464240;
-	b0  = 0.993196251379232065;
-	b1  = -1.576037749778233190;
-	b2 =  0.993196251379232065;
-/*	// passthru
-	a1 = 0.0; a2 = 0.0;
-	b1 = 0.0; b2 = 0.0;
-	b0 = 1.0; */
-	// order of coeffs: b0, b1, b2, a1, a2
-	//
-//	arm_biquad_cascade_df1_init_f32(&IIR_Notch, 1, (float32_t[]){b0,b1,b2,a1,a2}, (float32_t*)iir_notch_state);
-	IIR_Notch.pCoeffs = (float32_t[]){b0,b1,b2,a1,a2};
-	IIR_Notch.numStages = 1;
+	// setting the Coefficients in the notch filter instance
+	// while not using pointers
+	if (ts.notch_enabled) {
+	IIR_Notch.pCoeffs[0] = b0;
+	IIR_Notch.pCoeffs[1] = b1;
+	IIR_Notch.pCoeffs[2] = b2;
+	IIR_Notch.pCoeffs[3] = a1;
+	IIR_Notch.pCoeffs[4] = a2;
+	}
+	else { // passthru
+		IIR_Notch.pCoeffs[0] = 1;
+		IIR_Notch.pCoeffs[1] = 0;
+		IIR_Notch.pCoeffs[2] = 0;
+		IIR_Notch.pCoeffs[3] = 0;
+		IIR_Notch.pCoeffs[4] = 0;
+	}
 
-    for(i = 0; i < ((IIR_Notch.numStages * 4) -1); i++)	{	// no. of state variables = numStages * 4
-    	// initialize state buffer to zeroes
-    	iir_notch_state[i] = 0;
-    }
-	IIR_Notch.pState = (float32_t *)&iir_notch_state;					// point to state array for IIR filter
+	if(ts.peak_enabled) {
+	// peak filter
+	f0 = ts.peak_frequency;
+	Q = 10; //
+	w0 = 2 * PI * f0 / FS;
+	alpha = sin(w0) / (2 * Q);
+	A = 2.371; // 10^(10/40); 15dB gain
+
+	b0 = 1 + (alpha * A);
+	b1 = - 2 * cos(w0);
+	b2 = 1 - (alpha * A);
+	a0 = 1 + (alpha / A);
+	a1 = 2 * cos(w0); // already negated!
+	a2 = (alpha/A) - 1; // already negated!
+
+	// scaling the coefficients for gain
+	b0 = b0/a0;
+	b1 = b1/a0;
+	b2 = b2/a0;
+	a1 = a1/a0;
+	a2 = a2/a0;
+
+	IIR_Notch.pCoeffs[5] = b0;
+	IIR_Notch.pCoeffs[6] = b1;
+	IIR_Notch.pCoeffs[7] = b2;
+	IIR_Notch.pCoeffs[8] = a1;
+	IIR_Notch.pCoeffs[9] = a2;
+	}
+	else { //passthru
+		IIR_Notch.pCoeffs[5] = 1;
+		IIR_Notch.pCoeffs[6] = 0;
+		IIR_Notch.pCoeffs[7] = 0;
+		IIR_Notch.pCoeffs[8] = 0;
+		IIR_Notch.pCoeffs[9] = 0;
+	}
+
+	// EQ shelving filters
+	//
+	// Bass
+	//
+	f0 = 200;
+	A = 10^(ts.bass_gain/40); // gain ranges from -12 to 12
+	S = 0.5; // shelf slope, 1 is maximum value
+	alpha = sin(w0) / 2 * sqrt( (A + 1/A) * (1/S - 1) + 2 );
+	float32_t cosw0 = cos(w0);
+	float32_t twoAa = 2 * sqrt(A) * alpha;
+	// lowShelf
+	//
+	b0 = A * 		( (A + 1) - (A - 1) * cosw0 + twoAa );
+	b1 = 2 * A * 	( (A - 1) - (A + 1) * cosw0 		);
+	b2 = A * 		( (A + 1) - (A - 1) * cosw0 - twoAa );
+	a0 = 	 		  (A + 1) + (A - 1) * cosw0 + twoAa ;
+	a1 = 2 *  		( (A - 1) + (A + 1) * cosw0 		); // already negated!
+	a2 = twoAa 		- (A + 1) - (A - 1) * cosw0; // already negated!
+
+	// scaling the coefficients for gain
+	b0 = b0/a0;
+	b1 = b1/a0;
+	b2 = b2/a0;
+	a1 = a1/a0;
+	a2 = a2/a0;
+/*
+	IIR_Notch.pCoeffs[10] = b0;
+	IIR_Notch.pCoeffs[11] = b1;
+	IIR_Notch.pCoeffs[12] = b2;
+	IIR_Notch.pCoeffs[13] = a1;
+	IIR_Notch.pCoeffs[14] = a2;
+*/
+	IIR_Notch.pCoeffs[10] = 1;
+	IIR_Notch.pCoeffs[11] = 0;
+	IIR_Notch.pCoeffs[12] = 0;
+	IIR_Notch.pCoeffs[13] = 0;
+	IIR_Notch.pCoeffs[14] = 0;
+
+	IIR_Notch.pCoeffs[15] = 1;
+	IIR_Notch.pCoeffs[16] = 0;
+	IIR_Notch.pCoeffs[17] = 0;
+	IIR_Notch.pCoeffs[18] = 0;
+	IIR_Notch.pCoeffs[19] = 0;
+
+
+
 
 	/*+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-	 * End of Manual Notch init
+	 * End of Manual Notch coefficient calculation and setting
 	 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++*/
-
 	//
 	// Initialize high-pass filter used for the FM noise squelch
 	//
@@ -1369,7 +1444,7 @@ static void audio_lms_noise_reduction(int16_t psize)
 //* Function Name       : audio_snap_carrier [DD4WH, march 2016]
 //* Object              :
 //* Object              : when called, it determines the carrier frequency inside the filter bandwidth and tunes Rx to that freqeuency
-//* Input Parameters    :
+//* Input Parameters    : uses the new arm_rfft_fast_f32 for the FFT, that is 10 times (!!!) more accurate than the old arm_rfft_f32
 //* Output Parameters   :
 //* Functions called    :
 //*----------------------------------------------------------------------------
@@ -1377,167 +1452,203 @@ static void audio_lms_noise_reduction(int16_t psize)
 static void audio_snap_carrier (void)
 {
 
-//	int Lbin, Ubin;
-//	uint16_t bw_LSB = 0;
-//	uint16_t bw_USB = 0;
-	float32_t  Lbin, Ubin;
-	float32_t bw_LSB = 0.0;
-	float32_t bw_USB = 0.0;
-	float32_t maximum = 0.0;
-//	int posbin = 0;
-//	int maxbin = 1;
-	int posbin = 0;
-	float32_t maxbin = 1.0;
-	float32_t buff_len = (float32_t) FFT_IQ_BUFF_LEN2;
-	float32_t bin_BW = (float32_t) (48000.0 * 2.0 / buff_len); // width of a 1024 tap FFT bin = 46.875Hz, if FFT_IQ_BUFF_LEN2 = 2048 --> 1024 tap FFT
-	int i = 0;
-	float32_t delta1 = 0.0;
-	float32_t delta2 = 0.0;
-	float32_t help_freq = (float32_t)df.tune_new / 4.0;
-	ulong freq; //
-	float32_t bin1, bin2, bin3;
+    float32_t  Lbin, Ubin;
+    float32_t bw_LSB = 0.0;
+    float32_t bw_USB = 0.0;
+    float32_t maximum = 0.0;
+    int posbin = 0;
+    float32_t maxbin = 1.0;
+    float32_t buff_len = (float32_t) FFT_IQ_BUFF_LEN2;
+    float32_t bin_BW = (float32_t) (48000.0 * 2.0 / buff_len); // width of a 1024 tap FFT bin = 46.875Hz, if FFT_IQ_BUFF_LEN2 = 2048 --> 1024 tap FFT
+    int i = 0;
+    float32_t delta1 = 0.0;
+    float32_t delta2 = 0.0;
+    float32_t help_freq = (float32_t)df.tune_old / 4.0;
+    float32_t bin1, bin2, bin3;
+    float32_t help_sample;
+    float32_t width, centre_f, offset;
 
-	int buff_len_int = FFT_IQ_BUFF_LEN2;
-	// init of FFT structure has been moved to audio_driver_init()
+    int buff_len_int = FFT_IQ_BUFF_LEN2;
+    // init of FFT structure has been moved to audio_driver_init()
 
-	//	determine posbin (where we receive at the moment) from ts.iq_freq_mode
+    //	determine posbin (where we receive at the moment) from ts.iq_freq_mode
 
-		if(!ts.iq_freq_mode)	{	// frequency translation off, IF = 0 Hz
-			posbin = buff_len_int / 4; // right in the middle!
-		} // frequency translation ON
-		else if(ts.iq_freq_mode == FREQ_IQ_CONV_P6KHZ)	{	// we are in RF LO HIGH mode (tuning is below center of screen)
-			posbin = (buff_len_int / 4) - (buff_len_int / 16);
-		}
-		else if(ts.iq_freq_mode == FREQ_IQ_CONV_M6KHZ)	{	// we are in RF LO LOW mode (tuning is above center of screen)
-			posbin = (buff_len_int / 4) + (buff_len_int / 16);
-		}
-		else if(ts.iq_freq_mode == FREQ_IQ_CONV_P12KHZ)	{	// we are in RF LO HIGH mode (tuning is below center of screen)
-			posbin = (buff_len_int / 4) - (buff_len_int / 8);
-		}
-		else if(ts.iq_freq_mode == FREQ_IQ_CONV_M12KHZ)	{	// we are in RF LO LOW mode (tuning is above center of screen)
-			posbin = (buff_len_int / 4) + (buff_len_int / 8);
-		}
+    if(!ts.iq_freq_mode)	{	// frequency translation off, IF = 0 Hz
+        posbin = buff_len_int / 4; // right in the middle!
+    } // frequency translation ON
+    else if(ts.iq_freq_mode == FREQ_IQ_CONV_P6KHZ)	{	// we are in RF LO HIGH mode (tuning is below center of screen)
+        posbin = (buff_len_int / 4) - (buff_len_int / 16);
+    }
+    else if(ts.iq_freq_mode == FREQ_IQ_CONV_M6KHZ)	{	// we are in RF LO LOW mode (tuning is above center of screen)
+        posbin = (buff_len_int / 4) + (buff_len_int / 16);
+    }
+    else if(ts.iq_freq_mode == FREQ_IQ_CONV_P12KHZ)	{	// we are in RF LO HIGH mode (tuning is below center of screen)
+        posbin = (buff_len_int / 4) - (buff_len_int / 8);
+    }
+    else if(ts.iq_freq_mode == FREQ_IQ_CONV_M12KHZ)	{	// we are in RF LO LOW mode (tuning is above center of screen)
+        posbin = (buff_len_int / 4) + (buff_len_int / 8);
+    }
 
-		//	determine Lbin and Ubin from ts.dmod_mode and FilterInfo.width
-		//	= determine bandwith separately for lower and upper sideband
+    width = (float32_t)FilterInfo[FilterPathInfo[ts.filter_path].id].width;
+    centre_f = (float32_t)FilterPathInfo[ts.filter_path].offset;
+    offset = centre_f - (width/2.0);
 
-		if (ts.dmod_mode == DEMOD_LSB) {
-			bw_USB = 1000.0; // also "look" 1kHz away from carrier
-			bw_LSB = (float32_t)FilterInfo[FilterPathInfo[ts.filter_path].id].width;
-		}
+    //	determine Lbin and Ubin from ts.dmod_mode and FilterInfo.width
+    //	= determine bandwith separately for lower and upper sideband
 
-		if (ts.dmod_mode == DEMOD_USB) {
-			bw_LSB = 1000.0; // also "look" 1kHz away from carrier
-			bw_USB = (float32_t)FilterInfo[FilterPathInfo[ts.filter_path].id].width;
-		}
+    if (ts.dmod_mode == DEMOD_LSB) {
+        bw_USB = 1000.0; // also "look" 1kHz away from carrier
+        bw_LSB = width;
+    }
 
-		if (ts.dmod_mode == DEMOD_SAM || ts.dmod_mode == DEMOD_AM) {
-			bw_LSB = (float32_t)FilterInfo[FilterPathInfo[ts.filter_path].id].width;
-			bw_USB = (float32_t)FilterInfo[FilterPathInfo[ts.filter_path].id].width;
-		}
+    if (ts.dmod_mode == DEMOD_USB) {
+        bw_LSB = 1000.0; // also "look" 1kHz away from carrier
+        bw_USB = width;
+    }
 
-		// calculate upper and lower limit for determination of maximum magnitude
+    if (ts.dmod_mode == DEMOD_CW) { // experimental feature for CW - morse code signals
+        if(ts.cw_offset_mode == CW_OFFSET_USB_SHIFT) {	// Yes - USB?
+            // set flag for USB-freq-correction
+            // set limits for Lbin and Ubin according to filter_settings: offset = centre frequency!!!
+            // Lbin = posbin + offset from 0Hz
+            // offset = centre_f - (width/2)
+            // Lbin = posbin + round (off/bin_BW)
+            // Ubin = posbin + round((off + width)/bin_BW)
+            bw_LSB = - 1.0 * offset;
+            bw_USB = offset + width;
+            //	        	Lbin = (float32_t)posbin + round (offset / bin_BW);
+            //	        	Ubin = (float32_t)posbin + round ((offset + width)/bin_BW);
+        }
+        else if(ts.cw_offset_mode == CW_OFFSET_LSB_SHIFT){	// LSB?
+            bw_USB = - 1.0 * offset;
+            bw_LSB = offset + width;
+            //	        	Ubin = (float32_t)posbin - round (offset / bin_BW);
+            //		        Lbin = (float32_t)posbin - round ((offset + width)/bin_BW);
+        }
+        else if(ts.cw_offset_mode == CW_OFFSET_AUTO_SHIFT)	{	// Auto mode?  Check flag
+            if(ts.cw_lsb){
+                bw_USB = - 1.0 * offset;
+                bw_LSB = offset + width;
+                //			        Ubin = (float32_t)posbin - round (offset / bin_BW);
+                //			        Lbin = (float32_t)posbin - round ((offset + width)/bin_BW);
+            }
+            else {
+                bw_LSB = - 1.0 * offset;
+                bw_USB = offset + width;
+                //		        	Lbin = (float32_t)posbin + round (offset / bin_BW);
+                //		        	Ubin = (float32_t)posbin + round ((offset + width)/bin_BW);
+            }
+        }
+    }
 
-		Lbin = (float32_t)posbin - round(bw_LSB / bin_BW); // the bin on the lower sideband side
-		Ubin = (float32_t)posbin + round(bw_USB / bin_BW); // the bin on the upper sideband side
+    if (ts.dmod_mode == DEMOD_SAM || ts.dmod_mode == DEMOD_AM) {
+        bw_LSB = width;
+        bw_USB = width;
+    }
+
+    // calculate upper and lower limit for determination of maximum magnitude
+    Lbin = (float32_t)posbin - round(bw_LSB / bin_BW);
+    Ubin = (float32_t)posbin + round(bw_USB / bin_BW); // the bin on the upper sideband side
 
 
-		// 	FFT preparation
-		// we do not need to scale for this purpose !
-		// arm_scale_f32((float32_t *)sc.FFT_Samples, (float32_t)((1/ads.codec_gain_calc) * 1000.0), (float32_t *)sc.FFT_Samples, FFT_IQ_BUFF_LEN2);	// scale input according to A/D gain
-		//
-		// do windowing function on input data to get less "Bin Leakage" on FFT data
-		//
-		for(i = 0; i < buff_len_int; i++){
-			//	Hanning 1.36
-			//sc.FFT_Windat[i] = 0.5 * (float32_t)((1 - (arm_cos_f32(PI*2 * (float32_t)i / (float32_t)(FFT_IQ_BUFF_LEN2-1)))) * sc.FFT_Samples[i]);
-			// Hamming 1.22
-			//sc.FFT_Windat[i] = (float32_t)((0.53836 - (0.46164 * arm_cos_f32(PI*2 * (float32_t)i / (float32_t)(FFT_IQ_BUFF_LEN2-1)))) * sc.FFT_Samples[i]);
-			// Blackman 1.75
-			sc.FFT_Windat[i] = (0.42659 - (0.49656*arm_cos_f32((2.0*PI*(float32_t)i)/((float32_t)buff_len-1.0))) + (0.076849*arm_cos_f32((4.0*PI*(float32_t)i)/((float32_t)buff_len-1.0)))) * sc.FFT_Samples[i];
-		}
+    // 	FFT preparation
+    // we do not need to scale for this purpose !
+    // arm_scale_f32((float32_t *)sc.FFT_Samples, (float32_t)((1/ads.codec_gain_calc) * 1000.0), (float32_t *)sc.FFT_Samples, FFT_IQ_BUFF_LEN2);	// scale input according to A/D gain
+    //
+    // do windowing function on input data to get less "Bin Leakage" on FFT data
+    //
+    for(i = 0; i < buff_len_int; i++){
+        //	Hanning 1.36
+        //sc.FFT_Windat[i] = 0.5 * (float32_t)((1 - (arm_cos_f32(PI*2 * (float32_t)i / (float32_t)(FFT_IQ_BUFF_LEN2-1)))) * sc.FFT_Samples[i]);
+        // Hamming 1.22
+        //sc.FFT_Windat[i] = (float32_t)((0.53836 - (0.46164 * arm_cos_f32(PI*2 * (float32_t)i / (float32_t)(FFT_IQ_BUFF_LEN2-1)))) * sc.FFT_Samples[i]);
+        // Blackman 1.75
+        help_sample = (0.42659 - (0.49656*arm_cos_f32((2.0*PI*(float32_t)i)/((float32_t)buff_len-1.0))) + (0.076849*arm_cos_f32((4.0*PI*(float32_t)i)/((float32_t)buff_len-1.0)))) * sc.FFT_Samples[i];
+        sc.FFT_Samples[i] = help_sample;
+    }
 
-		// run FFT
-		arm_rfft_f32((arm_rfft_instance_f32 *)&sc.S,(float32_t *)(sc.FFT_Windat),(float32_t *)(sc.FFT_Samples));	// Do FFT
-		//
-		// Calculate magnitude
-		// as I understand this, this takes two samples and calculates ONE magnitude from this --> length is FFT_IQ_BUFF_LEN2 / 2
-		arm_cmplx_mag_f32((float32_t *)(sc.FFT_Samples),(float32_t *)(sc.FFT_MagData),(buff_len_int/2));
-		//
-		// putting the bins in frequency-sequential order!
-		// it puts the Magnitude samples into FFT_Samples again
-		// the samples are centred at FFT_IQ_BUFF_LEN2 / 2, so go from FFT_IQ_BUFF_LEN2 / 2 to the right and fill the buffer sc.FFT_Samples,
-		// when you have come to the end (FFT_IQ_BUFF_LEN2), continue from FFT_IQ_BUFF_LEN2 / 2 to the left until you have reached sample 0
-		//
-			for(i = 0; i < (buff_len_int/2); i++)	{
-				if(i < (buff_len_int/4))	{		// build left half of magnitude data
-					sc.FFT_Samples[i] = sc.FFT_MagData[i + buff_len_int/4];	// get data
-				}
-				else	{							// build right half of magnitude data
-					sc.FFT_Samples[i] = sc.FFT_MagData[i - buff_len_int/4];	// get data
-				}
-			}
-//####################################################################
-		if (sc.FFT_number == 0){
-		// look for maximum value and save the bin # for frequency delta calculation
-		int c;
+    // run FFT
+    //		arm_rfft_f32((arm_rfft_instance_f32 *)&sc.S,(float32_t *)(sc.FFT_Windat),(float32_t *)(sc.FFT_Samples));	// Do FFT
+    //		arm_rfft_fast_f32((arm_rfft_fast_instance_f32 *)&sc.S,(float32_t *)(sc.FFT_Windat),(float32_t *)(sc.FFT_Samples),0);	// Do FFT
+    arm_rfft_fast_f32((arm_rfft_fast_instance_f32 *)&sc.S,(float32_t *)(sc.FFT_Samples),(float32_t *)(sc.FFT_Samples),0);	// Do FFT
+    //
+    // Calculate magnitude
+    // as I understand this, this takes two samples and calculates ONE magnitude from this --> length is FFT_IQ_BUFF_LEN2 / 2
+    arm_cmplx_mag_f32((float32_t *)(sc.FFT_Samples),(float32_t *)(sc.FFT_MagData),(buff_len_int/2));
+    //
+    // putting the bins in frequency-sequential order!
+    // it puts the Magnitude samples into FFT_Samples again
+    // the samples are centred at FFT_IQ_BUFF_LEN2 / 2, so go from FFT_IQ_BUFF_LEN2 / 2 to the right and fill the buffer sc.FFT_Samples,
+    // when you have come to the end (FFT_IQ_BUFF_LEN2), continue from FFT_IQ_BUFF_LEN2 / 2 to the left until you have reached sample 0
+    //
+    for(i = 0; i < (buff_len_int/2); i++)	{
+        if(i < (buff_len_int/4))	{		// build left half of magnitude data
+            sc.FFT_Samples[i] = sc.FFT_MagData[i + buff_len_int/4];	// get data
+        }
+        else	{							// build right half of magnitude data
+            sc.FFT_Samples[i] = sc.FFT_MagData[i - buff_len_int/4];	// get data
+        }
+    }
+    //####################################################################
+    if (sc.FFT_number == 0){
+        // look for maximum value and save the bin # for frequency delta calculation
+        int c;
         for (c = (int)Lbin; c <= (int)Ubin; c++) { // search for FFT bin with highest value = carrier and save the no. of the bin in maxbin
-        if (maximum < sc.FFT_Samples[c]) {
-            maximum = sc.FFT_Samples[c];
-            maxbin = (float32_t)c;
-        }}
+            if (maximum < sc.FFT_Samples[c]) {
+                maximum = sc.FFT_Samples[c];
+                maxbin = (float32_t)c;
+            }}
         maximum = 0.0; // reset maximum for next time ;-)
 
         // ok, we have found the maximum, now save first delta frequency
         delta1 = (maxbin - (float32_t)posbin) * bin_BW;
 
         help_freq = help_freq + delta1;
-        help_freq = help_freq * 4.0;
-        freq = (ulong) help_freq;
-        // set frequency of Si570 with 4 * dialfrequency
-        df.tune_new = freq;
-        UiDriverUpdateFrequency ( 2, 0);
-//        help_freq = (float32_t)df.tune_new / 4.0;
-        sc.FFT_number = 1;
-		sc.state    = 0;
-		for(i = 0; i < (buff_len_int); i++)	{
-				sc.FFT_Samples[i] = 0.0;
-			}
 
-        return;
-		} else
-		{
-// ######################################################
+        //        if(ts.dmod_mode == DEMOD_CW) help_freq = help_freq + centre_f; // tuning in CW mode for passband centre!
+
+        help_freq = help_freq * 4.0;
+        // set frequency of Si570 with 4 * dialfrequency
+        df.tune_new = help_freq;
+        // request a retune just by changing the frequency
+
+        //        help_freq = (float32_t)df.tune_new / 4.0;
+        sc.FFT_number = 1;
+        sc.state    = 0;
+        for(i = 0; i < (buff_len_int); i++)	{
+            sc.FFT_Samples[i] = 0.0;
+        }
+    } else  {
+        // ######################################################
 
         // and now: fine-tuning:
         //	get amplitude values of the three bins around the carrier
-//	   		bin1 = sc.FFT_Samples[(int)maxbin-1];
-//	   		bin2 = sc.FFT_Samples[(int)maxbin];
-//	   		bin3 = sc.FFT_Samples[(int)maxbin+1];
 
-//			posbin = posbin + 10;
-			bin1 = sc.FFT_Samples[posbin-1];
-	   		bin2 = sc.FFT_Samples[posbin];
-	   		bin3 = sc.FFT_Samples[posbin+1];
+        bin1 = sc.FFT_Samples[posbin-1];
+        bin2 = sc.FFT_Samples[posbin];
+        bin3 = sc.FFT_Samples[posbin+1];
 
-   		if (bin1+bin2+bin3 == 0.0) bin1= 0.00000001; // prevent divide by 0
+        if (bin1+bin2+bin3 == 0.0) bin1= 0.00000001; // prevent divide by 0
 
-   		// estimate frequency of carrier by three-point-interpolation of bins around maxbin
-   		// formula by (Jacobsen & Kootsookos 2007) equation (4) P=1.36 for Hanning window FFT function
-   		// 10.5 is an empirically derived constant . . .
-   		delta2 = 10.5 + (bin_BW * (1.75 * (bin3 - bin1)) / (bin1 + bin2 + bin3));
-   		// set frequency variable with both delta frequencies
+        // estimate frequency of carrier by three-point-interpolation of bins around maxbin
+        // formula by (Jacobsen & Kootsookos 2007) equation (4) P=1.36 for Hanning window FFT function
+
+        delta2 = (bin_BW * (1.75 * (bin3 - bin1)) / (bin1 + bin2 + bin3));
+        if(delta2 > bin_BW) delta2 = 0.0;
+
+        // set frequency variable with delta2
         help_freq = help_freq + delta2;
+        //       if(ts.dmod_mode == DEMOD_CW) help_freq = help_freq - centre_f; // tuning in CW mode for passband centre!
+
         help_freq = help_freq * 4.0;
-        freq = (ulong) help_freq;
         // set frequency of Si570 with 4 * dialfrequency
-        df.tune_new = freq;
-        UiDriverUpdateFrequency ( 2, 0);
+        df.tune_new = help_freq;
+        // request a retune just by changing the frequency
 
         sc.state = 0; // reset flag for FFT sample collection (used in audio_rx_driver)
         sc.snap = 0; // reset flag for button press (used in ui_driver)
         sc.FFT_number = 0; // reset flag to first FFT
-}
+    }
 }
 
 //
@@ -1571,7 +1682,7 @@ static void audio_rx_processor(int16_t *src, int16_t *dst, int16_t size)
 	{
 		if (sc.state == 0 && sc.snap) sc.counter = sc.counter + 1;
 		//
-		// Collect I/Q samples
+		// Collect I/Q samples // why are the I & Q buffers filled with I & Q, the FFT buffers are filled with Q & I?
 		if(sd.state == 0)
 		{
 			sd.FFT_Samples[sd.samp_ptr] = (float32_t)(*(src + 1));	// get floating point data for FFT for spectrum scope/waterfall display
@@ -1580,7 +1691,7 @@ static void audio_rx_processor(int16_t *src, int16_t *dst, int16_t size)
 			sd.samp_ptr++;
 
 			// On obtaining enough samples for spectrum scope/waterfall, update state machine, reset pointer and wait until we process what we have
-			if(sd.samp_ptr >= FFT_IQ_BUFF_LEN*2)
+			if(sd.samp_ptr >= FFT_IQ_BUFF_LEN-1) //*2)
 			{
 				sd.samp_ptr = 0;
 				sd.state    = 1;
@@ -1594,7 +1705,7 @@ static void audio_rx_processor(int16_t *src, int16_t *dst, int16_t size)
 			sc.FFT_Samples[sc.samp_ptr] = (float32_t)(*(src));
 			sc.samp_ptr++;
 			// obtain samples for snap carrier mode
-			if(sc.samp_ptr >= FFT_IQ_BUFF_LEN2*2)
+			if(sc.samp_ptr >= FFT_IQ_BUFF_LEN2-1) //*2)
 			{
 				sc.samp_ptr = 0;
 				sc.state    = 1;
@@ -1832,9 +1943,8 @@ static void audio_rx_processor(int16_t *src, int16_t *dst, int16_t size)
 	 * this would be the right place for a manual notch filter !? (in 48ksps)
 	 */
 	// calculate in b_buffer!
-	if (ts.notch_enabled){
+	// this is the biquad filter, a cascade of notch filter, peak filter and low shelf, highshelf filter sections
 	arm_biquad_cascade_df1_f32 (&IIR_Notch, (float32_t *)ads.b_buffer,(float32_t *)ads.b_buffer, size/2);
-	}
 
 	//
 	if((ts.rx_muting) || ((ts.dmod_mode == DEMOD_FM) && ads.fm_squelched))	{	// fill audio buffers with zeroes if we are to mute the receiver completely while still processing data OR it is in FM and squelched
@@ -2240,7 +2350,9 @@ static void audio_tx_processor(int16_t *src, int16_t *dst, int16_t size)
 	// -----------------------------
 	// TUNE mode handler for DIGIQ mode
 	//
-	if (!ts.tune && ts.tx_audio_source == TX_AUDIO_DIGIQ) {
+	if (!ts.tune && ts.tx_audio_source == TX_AUDIO_DIGIQ && ts.dmod_mode != DEMOD_CW) {
+	  // If in CW mode, DIQ audio input is ignored and the paddles provide the input so that
+	  // you can use your keyer etc.
 		// Output I and Q as stereo, fill buffer and leave
 		for(i = 0; i < size/2; i++)	{				// Copy to single buffer
 			ads.i_buffer[i] = (float)*src++;
@@ -2780,22 +2892,20 @@ void I2S_RX_CallBack(int16_t *src, int16_t *dst, int16_t size, uint16_t ht)
 			audio_dv_rx_processor(src,dst,size);
 		//
 		to_tx = 1;		// Set flag to indicate that we WERE receiving when we go back to transmit mode
-	}
-	else	{			// Transmit mode
+	} else {			// Transmit mode
 		if((to_tx) || (ts.tx_audio_muting_flag))	{	// the first time back to RX, or TX audio muting timer still active - clear the buffers to reduce the "crash"
 			to_tx = 0;							// caused by the content of the buffers from TX - used on return from SSB TX
 			arm_fill_q15(0, dst, size);
 			arm_fill_q15(0, src, size);
-		}
-		else	{
+		} else {
 			if(!ts.dvmode) {
 				// TODO: HACK: simply overwrite input buffer with USB data instead of using data from I2S bus
 				// I2S just delivers the "timing".
 				// needs to be used only if USB digital line in is selected.
 				audio_tx_processor(src,dst,size);
-			}
-			else
+			} else {
 				audio_dv_tx_processor(src,dst,size);
+			}
 		}
 		//
 		to_rx = 1;		// Set flag to indicate that we WERE transmitting when we eventually go back to receive mode

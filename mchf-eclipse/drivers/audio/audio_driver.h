@@ -28,7 +28,7 @@
 // (48kHz sampling - USB)
 //
 // -----------------------------
-// FFT buffer (128, 512 or 2048)
+// FFT buffer, this is double the size of the length of the FFT used for spectrum display and waterfall spectrum
 #define FFT_IQ_BUFF_LEN		512
 
 
@@ -467,6 +467,16 @@ enum	{
 //
 #define	DSP_NOTCH_MU_MAX		40		// maximum "strength" (convergence) setting for the notch
 #define	DSP_NOTCH_MU_DEFAULT	25		// default convergence setting for the notch
+
+#define DSP_SWITCH_OFF				0
+#define DSP_SWITCH_NR				1
+#define DSP_SWITCH_NOTCH			2
+#define DSP_SWITCH_NR_AND_NOTCH		3
+#define DSP_SWITCH_NOTCH_MANUAL		4
+#define DSP_SWITCH_PEAK_FILTER		5
+#define DSP_SWITCH_BASS				98
+#define DSP_SWITCH_TREBLE			99
+#define DSP_SWITCH_MAX				6 // bass & treble not used here
 //
 #define	AGC_DELAY_BUFSIZE		(BUFF_LEN/2)*5	// Size of AGC delaying audio buffer - Must be a multiple of BUFF_LEN/2.
 											// This is divided by the decimation rate so that the time delay is constant.
@@ -522,19 +532,21 @@ void I2S_RX_CallBack(int16_t *src, int16_t *dst, int16_t size, uint16_t ht);
 extern __IO		AudioDriverState	ads;
 extern __IO     SMeter              sm;
 extern __IO FilterCoeffs        fc;
-
+// change this to 2048 (=1024 tap FFT), if problems with spectrum display with 7k5 SAM mode persist!
 #define FFT_IQ_BUFF_LEN2 2048
+//#define FFT_IQ_BUFF_LEN2 4096 // = 2048 tap FFT !!! this is very very accurate
 typedef struct SnapCarrier
 {
     // FFT state
-    arm_rfft_instance_f32           S;
+//    arm_rfft_instance_f32           S; // old, depricated FFT routine, do not use
+//    arm_cfft_radix4_instance_f32    S_CFFT;  // old, depricated FFT routine, do not use
 
-    arm_cfft_radix4_instance_f32    S_CFFT;
+    arm_rfft_fast_instance_f32           S; // new and faster real FFT routine
 
     // Samples buffer
     //
     float32_t   FFT_Samples[FFT_IQ_BUFF_LEN2];
-    float32_t   FFT_Windat[FFT_IQ_BUFF_LEN2];
+//    float32_t   FFT_Windat[FFT_IQ_BUFF_LEN2];
     float32_t   FFT_MagData[FFT_IQ_BUFF_LEN2/2];
     // Current data ptr
     ulong   samp_ptr;

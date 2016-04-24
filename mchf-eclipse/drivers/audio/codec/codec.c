@@ -79,7 +79,7 @@ void Codec_Reset(uint32_t AudioFreq,ulong word_size)
 	// Reg 03: Right Headphone out (0dB)
 	//Codec_WriteRegister(0x03,0x0079);
 
-	Codec_Volume(0);
+	Codec_Volume(0,ts.txrx_mode);
 
 	// Reg 04: Analog Audio Path Control (DAC sel, ADC line, Mute Mic)
 	Codec_WriteRegister(W8731_ANLG_AU_PATH_CNTR,0x0012);
@@ -111,8 +111,8 @@ void Codec_Reset(uint32_t AudioFreq,ulong word_size)
 	Codec_WriteRegister(W8731_ACTIVE_CNTR,0x0001);
 }
 
-void Codec_MicBoostCheck() {
-  if(ts.txrx_mode == TRX_MODE_TX) {       // only adjust the hardware if in TX mode (it will kill RX otherwise!)
+void Codec_MicBoostCheck(uint8_t mode) {
+  if(mode == TRX_MODE_TX) {       // only adjust the hardware if in TX mode (it will kill RX otherwise!)
     // Set up microphone gain and adjust mic boost accordingly
     if(ts.tx_gain[TX_AUDIO_MIC] > 50)	{		// actively adjust microphone gain and microphone boost
       ts.mic_boost = 1;
@@ -150,15 +150,15 @@ void Codec_MicBoostCheck() {
 //* Functions called    :
 //*----------------------------------------------------------------------------
 
-void Codec_RX_TX(void)
+void Codec_RX_TX(uint8_t mode)
 {
 
 	uchar mute_count;
 
-	if(ts.txrx_mode == TRX_MODE_RX)
+	if(mode == TRX_MODE_RX)
 	{
 		// First step - mute sound
-		Codec_Volume(0);
+		Codec_Volume(0,mode);
 
 		// Mute line input
 		Codec_Line_Gain_Adj(0);
@@ -187,26 +187,28 @@ void Codec_RX_TX(void)
 	}
 	else		// It is transmit
 	{
-		Codec_Volume(0);	// Mute sound
+		Codec_Volume(0,mode);	// Mute sound
 		//
 		ads.agc_holder = ads.agc_val;		// store AGC value at instant we went to TX for recovery when we return to RX
 		//
 		if((ts.dmod_mode == DEMOD_CW) || ((ts.dmod_mode == DEMOD_CW) && ts.tune))	{	// Turn sidetone on for CW or TUNE mode in CW mode
 			//
-			Codec_SidetoneSetgain();	// set sidetone level
+			Codec_SidetoneSetgain(mode);	// set sidetone level
 			//
 		}
 		else if(ts.tune)	{	// Not in CW mode - but in TUNE mode
 			if(!ts.iq_freq_mode)	// Is translate mode *NOT* active?
-				Codec_SidetoneSetgain();	// yes, turn on sidetone in SSB-TUNE mode
+				Codec_SidetoneSetgain(mode);	// yes, turn on sidetone in SSB-TUNE mode
 		}
 		else	{	// Not CW or TUNE mode
 			//
-			for(mute_count = 0; mute_count < 8; mute_count++)		// Doing this seems to suppress the loud CLICK
-				Codec_Volume(0);	// that occurs when going from RX to TX in modes other than CW
+			for(mute_count = 0; mute_count < 8; mute_count++) {		// Doing this seems to suppress the loud CLICK
+				Codec_Volume(0,mode);	// that occurs when going from RX to TX in modes other than CW
+			}
 				// This is probably because of the delay between the mute command, above, and the
 			//
 			non_os_delay();
+
 			//
 			// Select source or leave it as it is
 			// PHONE out is muted, normal exit routed to TX modulator
@@ -214,7 +216,7 @@ void Codec_RX_TX(void)
 
 			// TODO: MicBoost Code exists three times identical
 			if(ts.tx_audio_source == TX_AUDIO_MIC) {
-				Codec_MicBoostCheck();
+				Codec_MicBoostCheck(mode);
 			} else {
 				Codec_Line_Gain_Adj(ts.tx_gain[ts.tx_audio_source]);	// set LINE input gain if in LINE in mode
 			}
@@ -231,7 +233,7 @@ void Codec_RX_TX(void)
 //* Output Parameters   :
 //* Functions called    :
 //*----------------------------------------------------------------------------
-void Codec_SidetoneSetgain(void)
+void Codec_SidetoneSetgain(uint8_t mode)
 {
 float vcalc, vcalc1;
 
@@ -242,29 +244,27 @@ float vcalc, vcalc1;
 //
 // Note that this function is called from places OTHER than Codec_RX_TX(), above!
 
-	// bail out if not in transmit mode
-	if(ts.txrx_mode != TRX_MODE_TX)		// bail out if not in transmit mode
-		return;
-	//
-	if(ts.st_gain)	{	// calculate if the sidetone gain is non-zero
-		vcalc = (float)ts.tx_power_factor;	// get TX scaling power factor
-		vcalc *= vcalc;
-		vcalc = 1/vcalc;		// invert it since we are calculating attenuation of the original signal (assuming normalization to 1.0)
-		vcalc = log10f(vcalc);	// get the log
-		vcalc *= 10;			// convert to deciBels and calibrate for the per-step value of the codec
-		vcalc1 = (float)ts.st_gain;		// get the sidetone gain (level) setting
-		vcalc1 *= 6;			// offset by # of dB the desired sidetone gain
-		vcalc += vcalc1;		// add the calculated gain to the desired sidetone gain
-		if(vcalc > 127)			// enforce limits of calculation to range of attenuator
-			vcalc = 127;
-		else if	(vcalc < 0)
-			vcalc = 0;
-	}
-	else						// mute if zero value
-		vcalc = 0;
-	//
-	Codec_Volume((uchar)vcalc);		// set the calculated sidetone volume
-	//
+  if(mode == TRX_MODE_TX) {		// bail out if not in transmit mode
+    //
+    if(ts.st_gain)	{	// calculate if the sidetone gain is non-zero
+      vcalc = (float)ts.tx_power_factor;	// get TX scaling power factor
+      vcalc *= vcalc;
+      vcalc = 1/vcalc;		// invert it since we are calculating attenuation of the original signal (assuming normalization to 1.0)
+      vcalc = log10f(vcalc);	// get the log
+      vcalc *= 10;			// convert to deciBels and calibrate for the per-step value of the codec
+      vcalc1 = (float)ts.st_gain;		// get the sidetone gain (level) setting
+      vcalc1 *= 6;			// offset by # of dB the desired sidetone gain
+      vcalc += vcalc1;		// add the calculated gain to the desired sidetone gain
+      if(vcalc > 127) {			// enforce limits of calculation to range of attenuator
+        vcalc = 127;
+      } else if	(vcalc < 0)
+      {	vcalc = 0; }
+    }
+    else {						// mute if zero value
+      vcalc = 0;
+    }
+    Codec_Volume((uchar)vcalc,mode);		// set the calculated sidetone volume
+  }
 }
 
 
@@ -278,7 +278,7 @@ float vcalc, vcalc1;
 //* Functions called    :
 //*----------------------------------------------------------------------------
 
-void Codec_Volume(uchar vol)
+void Codec_Volume(uchar vol, uint8_t txrx_mode)
 {
 //	ts.codec_vol = vol;		// copy codec volume for global use
 	ulong lv = vol;
@@ -299,7 +299,7 @@ void Codec_Volume(uchar vol)
 	//
 	// Selectively mute "Right Headphone" output (LINE OUT) depending on transceiver configuration
 	//
-	if(ts.txrx_mode == TRX_MODE_TX)	{	// in transmit mode?
+	if(txrx_mode == TRX_MODE_TX)	{	// in transmit mode?
 		if(ts.iq_freq_mode || (ts.misc_flags1& MISC_FLAGS1_MUTE_LINEOUT_TX))	// is translate mode active OR translate mode OFF but LINE OUT to be muted during transmit
 			Codec_WriteRegister(W8731_RIGHT_HEADPH_OUT,0);	// yes - mute LINE OUT during transmit
 		else							// audio is NOT to be muted during transmit

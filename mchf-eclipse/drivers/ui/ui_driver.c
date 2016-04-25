@@ -289,14 +289,14 @@ UiLcdHy28_PrintText(POS_PWR_NUM_IND_X,POS_PWR_NUM_IND_Y+24,text,White,Black,0);
 }
 
 static void UiDriver_ToggleWaterfallScopeDisplay() {
-  if(ts.misc_flags1 & MISC_FLAGS1_WFALL_SCOPE_TOGGLE)
+  if(ts.flags1 & FLAGS1_WFALL_SCOPE_TOGGLE)
   {                       // is the waterfall mode active?
-    ts.misc_flags1 &=  ~MISC_FLAGS1_WFALL_SCOPE_TOGGLE;     // yes, turn it off
+    ts.flags1 &=  ~FLAGS1_WFALL_SCOPE_TOGGLE;     // yes, turn it off
     UiSpectrumInitSpectrumDisplay();   // init spectrum scope
   }
   else
   {                       // waterfall mode was turned off
-    ts.misc_flags1 |=  MISC_FLAGS1_WFALL_SCOPE_TOGGLE;          // turn it on
+    ts.flags1 |=  FLAGS1_WFALL_SCOPE_TOGGLE;          // turn it on
     UiSpectrumInitSpectrumDisplay();   // init spectrum scope
   }
 }
@@ -356,8 +356,8 @@ void UiDriver_HandleSwitchToNextDspMode()
 		// NR ON/OFF		ts.dsp_active |= DSP_NR_ENABLE;	 // 	ts.dsp_active &= ~DSP_NR_ENABLE;
 		// NOTCH ON/OFF		ts.dsp_active |= DSP_NOTCH_ENABLE; // 	ts.dsp_active &= ~DSP_NOTCH_ENABLE;
 		// Manual Notch		ts.notch_enabled = 1; // ts.notch_enabled = 0;
-		// BASS				ts.bass // always "ON", gain ranges from -12 to +12 dB, "OFF" = 0dB
-		// TREBLE			ts.treble // always "ON", gain ranges from -12 to +12 dB, "OFF" = 0dB
+		// BASS				ts.bass // always "ON", gain ranges from -20 to +20 dB, "OFF" = 0dB
+		// TREBLE			ts.treble // always "ON", gain ranges from -20 to +20 dB, "OFF" = 0dB
 
 		ts.dsp_mode ++; // switch mode
 		// 0 = everything OFF, 1 = NR, 2 = automatic NOTCH, 3 = NR + NOTCH, 4 = manual NOTCH, 5 = BASS adjustment, 6 = TREBLE adjustment
@@ -586,14 +586,11 @@ void UiDriver_HandleTouchScreen()
 		}
 		if(check_tp_coordinates(26,35,39,46))			// dynamic tuning activation
 		{
-			if (ts.dynamic_tuning_active)			// is it off??
-			{
-				ts.dynamic_tuning_active = false;	// then turn it on
-			}
+			if (!(ts.flags1 & FLAGS1_DYN_TUNE_ENABLE))			// is it off??
+				ts.flags1 |= FLAGS1_DYN_TUNE_ENABLE;	// then turn it on
 			else
-			{
-				ts.dynamic_tuning_active = true;	// if already on, turn it off
-			}
+				ts.flags1 &= ~FLAGS1_DYN_TUNE_ENABLE;	// then turn it on
+
 			UiDriverShowStep(df.selected_idx);
 		}
 	}
@@ -960,7 +957,7 @@ void UiDriver_HandleBandButtons(uint16_t button) {
 	ts.dsp_inhibit = 1;
 	ts.dsp_inhibit_timing = ts.sysclock + DSP_BAND_CHANGE_DELAY;	// set time to re-enable DSP
 	//
-	if(ts.misc_flags1 & MISC_FLAGS1_SWAP_BAND_BTN)		// band up/down button swapped?
+	if(ts.flags1 & FLAGS1_SWAP_BAND_BTN)		// band up/down button swapped?
 		UiDriverChangeBand(swapped);	// yes - go up
 	else
 		UiDriverChangeBand(normal);	// not swapped, go down
@@ -1076,7 +1073,7 @@ void ui_driver_init()
 //*----------------------------------------------------------------------------
 void ui_driver_thread()
 {
-  if(ts.misc_flags1 & MISC_FLAGS1_WFALL_SCOPE_TOGGLE) {	// is waterfall mode enabled?
+  if(ts.flags1 & FLAGS1_WFALL_SCOPE_TOGGLE) {	// is waterfall mode enabled?
     UiSpectrumReDrawWaterfall();	// yes - call waterfall update instead
   } else {
     UiSpectrumReDrawScopeDisplay();	// Spectrum Display enabled - do that!
@@ -1984,7 +1981,7 @@ void UiDriverShowStep(ulong step)
 	uint32_t 	stepsize_background;
 
 	color = ts.tune_step?Cyan:White;		// is this a "Temporary" step size from press-and-hold?
-	stepsize_background = ts.dynamic_tuning_active?Blue:Black;
+	stepsize_background = (ts.flags1 & FLAGS1_DYN_TUNE_ENABLE)?Blue:Black;
 	// dynamic_tuning active -> yes, display on Grey3
 
 	if(step_line)	{	// Remove underline indicating step size if one had been drawn
@@ -3353,7 +3350,7 @@ static void UiDriver_TxRxUiSwitch(enum TRX_States_t state) {
   static uchar enc_one_mode = ENC_ONE_MODE_AUDIO_GAIN;  // stores modes of encoder when we enter TX
   static uchar enc_three_mode = ENC_THREE_MODE_CW_SPEED;    // stores modes of encoder when we enter TX
 
-  if((ts.misc_flags1 & MISC_FLAGS1_TX_AUTOSWITCH_UI_DISABLE) == false)    {           // If auto-switch on TX/RX is enabled
+  if((ts.flags1 & FLAGS1_TX_AUTOSWITCH_UI_DISABLE) == false)    {           // If auto-switch on TX/RX is enabled
     if(state == TRX_STATE_RX_TO_TX)   {
 
       // change display related to encoder one to TX mode (e.g. Sidetone gain or Compression level)
@@ -3699,7 +3696,7 @@ static void UiDriverChangeDemodMode(uchar noskip)
 				loc_mode++;				// yes - go to next mode
 		}
 		if(loc_mode == DEMOD_FM)	{	// is this FM mode?
-			if((!(ts.misc_flags2 & MISC_FLAGS2_FM_MODE_ENABLE)) || (ts.band != BAND_MODE_10 && ts.lsb_usb_auto_select))	// is FM to be disabled?
+			if((!(ts.flags2 & FLAGS2_FM_MODE_ENABLE)) || (ts.band != BAND_MODE_10 && ts.lsb_usb_auto_select))	// is FM to be disabled?
 				loc_mode++;				// yes - go to next mode
 		}
 	}
@@ -3709,7 +3706,7 @@ static void UiDriverChangeDemodMode(uchar noskip)
 	}
 
 	if(loc_mode == DEMOD_SAM)	{	// yes - is this SAM mode?
-		if(!ts.sam_enabled)		// is SAM to be disabled?
+		if(!(ts.flags1 & FLAGS1_SAM_ENABLE))		// is SAM to be disabled?
 			loc_mode++;				// yes - go to next mode
 	}
 
@@ -3919,7 +3916,7 @@ static bool UiDriverCheckFrequencyEncoder()
 
 		enc_multiplier = 1; //set standard speed
 
-		if (ts.dynamic_tuning_active)   // check if dynamic tuning has been activated by touchscreen
+		if (ts.flags1 & FLAGS1_DYN_TUNE_ENABLE)   // check if dynamic tuning has been activated by touchscreen
 		{
 			if ((enc_speed_avg > 80) || (enc_speed_avg < (-80)))   { enc_multiplier = 10; } // turning medium speed -> increase speed by 10
 			if ((enc_speed_avg > 300) || (enc_speed_avg < (-300))) { enc_multiplier = 100; } //turning fast speed -> increase speed by 100
@@ -4166,8 +4163,8 @@ static void UiDriverCheckEncoderTwo()
         	if(pot_diff > 0) {
         		ts.bass_gain = ts.bass_gain + 1;
         	}
-        	if (ts.bass_gain < -12) ts.bass_gain = -12;
-        	if (ts.bass_gain > 12) ts.bass_gain = 12;
+        	if (ts.bass_gain < -20) ts.bass_gain = -20;
+        	if (ts.bass_gain > 20) ts.bass_gain = 20;
         	// display bass gain
         	UiDriverDisplayBass();
         	// set filter instance
@@ -4181,8 +4178,8 @@ static void UiDriverCheckEncoderTwo()
         	if(pot_diff > 0) {
         		ts.treble_gain = ts.treble_gain + 1;
         	}
-        	if (ts.treble_gain < -12) ts.treble_gain = -12;
-        	if (ts.treble_gain > 12) ts.treble_gain = 12;
+        	if (ts.treble_gain < -20) ts.treble_gain = -20;
+        	if (ts.treble_gain > 20) ts.treble_gain = 20;
         	// display treble gain
         	UiDriverDisplayBass();
         	// set filter instance
@@ -5475,7 +5472,7 @@ static bool UiDriver_UpdatePowerAndVSWR() {
     if(swrm.p_curr < SWR_SAMPLES_CNT)
     {
       // Get next sample
-      if(!(ts.misc_flags1 & MISC_FLAGS1_SWAP_FWDREV_SENSE))   {   // is bit NOT set?  If this is so, do NOT swap FWD/REV inputs from power detectors
+      if(!(ts.flags1 & FLAGS1_SWAP_FWDREV_SENSE))   {   // is bit NOT set?  If this is so, do NOT swap FWD/REV inputs from power detectors
         val_p = ADC_GetConversionValue(ADC2); // forward
         val_s = ADC_GetConversionValue(ADC3); // return
       }
@@ -6134,7 +6131,7 @@ void UiDriverSetBandPowerFactor(uchar band)
 	//
 	ts.tx_power_factor *= pf_temp;	// rescale this for the actual power level
 
-	if((df.tune_new < 8000000 * 4) && (ts.misc_flags2 & MISC_FLAGS2_LOW_BAND_BIAS_REDUCE))		// reduction for frequencies < 8 MHz
+	if((df.tune_new < 8000000 * 4) && (ts.flags2 & FLAGS2_LOW_BAND_BIAS_REDUCE))		// reduction for frequencies < 8 MHz
 	    ts.tx_power_factor = ts.tx_power_factor / 4;
 }
 

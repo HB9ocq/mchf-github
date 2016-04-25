@@ -493,8 +493,8 @@ const ConfigEntryDescriptor ConfigEntryInfo[] = {
     { ConfigEntry_UInt8, EEPROM_MAX_RX_GAIN,&ts.max_rf_gain,MAX_RF_GAIN_DEFAULT,0,MAX_RF_GAIN_MAX},
     { ConfigEntry_UInt8, EEPROM_TX_AUDIO_COMPRESS,&ts.tx_comp_level,TX_AUDIO_COMPRESSION_DEFAULT,0,TX_AUDIO_COMPRESSION_MAX},
     { ConfigEntry_UInt8, EEPROM_TX_DISABLE,&ts.tx_disable,0,0,1},
-    { ConfigEntry_UInt8, EEPROM_MISC_FLAGS1,&ts.misc_flags1,0,0,255},
-    { ConfigEntry_UInt8, EEPROM_MISC_FLAGS2,&ts.misc_flags2,0,0,255},
+    { ConfigEntry_UInt16, EEPROM_FLAGS1,&ts.flags1,0,0,65535},
+    { ConfigEntry_UInt16, EEPROM_FLAGS2,&ts.flags2,0,0,65535},
     { ConfigEntry_UInt16, EEPROM_VERSION_MINOR,&ts.version_number_minor,0,0,255},
     { ConfigEntry_UInt16, EEPROM_VERSION_NUMBER,&ts.version_number_release,0,0,255},
     { ConfigEntry_UInt16, EEPROM_VERSION_BUILD,&ts.version_number_build,0,0,255},
@@ -528,16 +528,10 @@ const ConfigEntryDescriptor ConfigEntryInfo[] = {
     { ConfigEntry_UInt32_16, EEPROM_FM_SUBAUDIBLE_TONE_DET,&ts.fm_subaudible_tone_det_select,FM_SUBAUDIBLE_TONE_OFF,0,NUM_SUBAUDIBLE_TONES},
     { ConfigEntry_UInt8, EEPROM_FM_TONE_BURST_MODE,&ts.fm_tone_burst_mode,FM_TONE_BURST_OFF,0,FM_TONE_BURST_MAX},
     { ConfigEntry_UInt8, EEPROM_FM_SQUELCH_SETTING,&ts.fm_sql_threshold,FM_SQUELCH_DEFAULT,0,FM_SQUELCH_MAX},
-//    { ConfigEntry_UInt8, EEPROM_FM_RX_BANDWIDTH,&ts.fm_rx_bandwidth,FM_BANDWIDTH_DEFAULT,0,FM_RX_BANDWIDTH_MAX},
     { ConfigEntry_UInt32_16, EEPROM_KEYBOARD_BEEP_FREQ,&ts.beep_frequency,DEFAULT_BEEP_FREQUENCY,MIN_BEEP_FREQUENCY,MAX_BEEP_FREQUENCY},
     { ConfigEntry_UInt8, EEPROM_BEEP_LOUDNESS,&ts.beep_loudness,DEFAULT_BEEP_LOUDNESS,0,MAX_BEEP_LOUDNESS},
-    { ConfigEntry_Bool, EEPROM_CAT_MODE_ACTIVE,&ts.cat_mode_active,0,0,1},
     { ConfigEntry_UInt8, EEPROM_TUNE_POWER_LEVEL,&ts.tune_power_level,PA_LEVEL_MAX_ENTRY,PA_LEVEL_FULL,PA_LEVEL_MAX_ENTRY},
     { ConfigEntry_UInt8, EEPROM_CAT_XLAT,&ts.xlat,1,0,1},
-    { ConfigEntry_Bool, EEPROM_DYNAMIC_TUNING,&ts.dynamic_tuning_active,0,0,1},
-    { ConfigEntry_Bool, EEPROM_SAM_ENABLE,&ts.sam_enabled,0,0,1},
-    { ConfigEntry_Bool, EEPROM_CAT_IN_SANDBOX,&ts.cat_in_sandbox,0,0,1},
-    { ConfigEntry_Bool, EEPROM_SPECTRUM_LIGHT_ENABLE,&ts.spectrum_light ,0,0,1},
 	UI_C_EEPROM_BAND_5W_PF( 0,80,m)
     UI_C_EEPROM_BAND_5W_PF(1,60,m)
     UI_C_EEPROM_BAND_5W_PF(2,40,m)
@@ -591,7 +585,7 @@ const ConfigEntryDescriptor* UiConfiguration_GetEntry(uint16_t id) {
 }
 
 
-
+/*
 static void __attribute__ ((noinline)) UiReadSettingEEPROM_Bool(uint16_t addr, volatile bool* val_ptr, uint16_t default_val, uint16_t min_val, uint16_t max_val ) {
     uint16_t value;
     if(Read_EEPROM(addr, &value) == 0)
@@ -602,6 +596,7 @@ static void __attribute__ ((noinline)) UiReadSettingEEPROM_Bool(uint16_t addr, v
         }
     }
 }
+*/
 
 static void __attribute__ ((noinline)) UiReadSettingEEPROM_UInt8(uint16_t addr, volatile uint8_t* val_ptr, uint16_t default_val, uint16_t min_val, uint16_t max_val ) {
     uint16_t value;
@@ -697,7 +692,7 @@ void UiReadSettingsBandMode(const uint8_t i, const uint16_t band_mode, const uin
         {
             vforeg->dial_value = value32;
         }
-        else if((ts.misc_flags2 & MISC_FLAGS2_FREQ_MEM_LIMIT_RELAX) && (!ts.load_eeprom_defaults) && (!ts.load_freq_mode_defaults))
+        else if((ts.flags2 & FLAGS2_FREQ_MEM_LIMIT_RELAX) && (!ts.load_eeprom_defaults) && (!ts.load_freq_mode_defaults))
         {   // xxxx relax memory-save frequency restrictions and is it within the allowed range?
             vforeg->dial_value = value32;
         }
@@ -710,9 +705,11 @@ void UiReadSettingsBandMode(const uint8_t i, const uint16_t band_mode, const uin
 
 }
 
+/*
 static void __attribute__ ((noinline)) UiWriteSettingEEPROM_Bool(uint16_t addr, bool set_val, bool default_val ) {
     UiWriteSettingEEPROM_UInt16(addr,(uint16_t)set_val,(uint16_t)default_val);
 }
+*/
 
 static void __attribute__ ((noinline)) UiWriteSettingEEPROM_UInt32_16(uint16_t addr, uint32_t set_val, uint16_t default_val ) {
     UiWriteSettingEEPROM_UInt16(addr,set_val,default_val);
@@ -769,9 +766,9 @@ void UiConfiguration_ReadConfigEntryData(const ConfigEntryDescriptor* ced_ptr) {
   case ConfigEntry_Int32_16:
     UiReadSettingEEPROM_Int32_16(ced_ptr->id,ced_ptr->val_ptr,ced_ptr->val_default,ced_ptr->val_min,ced_ptr->val_max);
     break;
-  case ConfigEntry_Bool:
-    UiReadSettingEEPROM_Bool(ced_ptr->id,ced_ptr->val_ptr,ced_ptr->val_default,ced_ptr->val_min,ced_ptr->val_max);
-    break;
+//  case ConfigEntry_Bool:
+//    UiReadSettingEEPROM_Bool(ced_ptr->id,ced_ptr->val_ptr,ced_ptr->val_default,ced_ptr->val_min,ced_ptr->val_max);
+//    break;
 
   }
 }
@@ -790,9 +787,9 @@ void UiConfiguration_WriteConfigEntryData(const ConfigEntryDescriptor* ced_ptr) 
   case ConfigEntry_Int32_16:
     UiWriteSettingEEPROM_Int32_16(ced_ptr->id,*(int32_t*)ced_ptr->val_ptr,ced_ptr->val_default);
     break;
-  case ConfigEntry_Bool:
-    UiWriteSettingEEPROM_Bool(ced_ptr->id,*(bool*)ced_ptr->val_ptr,ced_ptr->val_default);
-    break;
+//  case ConfigEntry_Bool:
+//    UiWriteSettingEEPROM_Bool(ced_ptr->id,*(bool*)ced_ptr->val_ptr,ced_ptr->val_default);
+//    break;
   }
 }
 
@@ -833,7 +830,7 @@ void UiConfiguration_LoadEepromValues(void)
     UiReadSettingEEPROM_UInt16(EEPROM_ZERO_LOC_UNRELIABLE,&value16,0,0,0xffff);
     // Let's use location zero - which may not work reliably, anyway!
     //
-    UiReadSettingEEPROM_UInt8(EEPROM_MISC_FLAGS2,&ts.misc_flags2,0,0,255);
+    UiReadSettingEEPROM_UInt16(EEPROM_FLAGS2,&ts.flags2,0,0,255);
     // ------------------------------------------------------------------------------------
     // Try to read Band and Mode saved values, but read freq-limit-settings before
     UiReadSettingEEPROM_UInt16(EEPROM_BAND_MODE,&value16,0,0,0xffff);
@@ -859,7 +856,7 @@ void UiConfiguration_LoadEepromValues(void)
         {
             df.tune_new = value32;
         }
-        else if((ts.misc_flags2 & MISC_FLAGS2_FREQ_MEM_LIMIT_RELAX) && (!ts.load_eeprom_defaults) && (!ts.load_freq_mode_defaults))   {   // xxxx relax memory-save frequency restrictions and is it within the allowed range?
+        else if((ts.flags2 & FLAGS2_FREQ_MEM_LIMIT_RELAX) && (!ts.load_eeprom_defaults) && (!ts.load_freq_mode_defaults))   {   // xxxx relax memory-save frequency restrictions and is it within the allowed range?
             df.tune_new = value32;
         }
         else

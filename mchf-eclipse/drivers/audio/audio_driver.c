@@ -361,7 +361,7 @@ void audio_driver_set_rx_audio_filter(void)
 	IIR_AntiAlias.pState = (float32_t *)&iir_aa_state;					// point to state array for IIR filter
 
 	/*+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-	 * Manual Notch [DD4WH, april 2016]
+	 * Cascaded biquad (notch, peak, lowShelf, highShelf) [DD4WH, april 2016]
 	 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++*/
 	// it is only a lightweight filter with one stage (= 2nd order IIR)
 	// but nonetheless very effective
@@ -461,7 +461,7 @@ void audio_driver_set_rx_audio_filter(void)
 	// Bass
 	//
 	f0 = 200;
-	A = 10^(ts.bass_gain/40); // gain ranges from -12 to 12
+	A = powf(10.0,(ts.bass_gain/40.0)); // gain ranges from -12 to 12
 	S = 0.5; // shelf slope, 1 is maximum value
 	alpha = sin(w0) / 2 * sqrt( (A + 1/A) * (1/S - 1) + 2 );
 	float32_t cosw0 = cos(w0);
@@ -481,30 +481,57 @@ void audio_driver_set_rx_audio_filter(void)
 	b2 = b2/a0;
 	a1 = a1/a0;
 	a2 = a2/a0;
-/*
+
 	IIR_Notch.pCoeffs[10] = b0;
 	IIR_Notch.pCoeffs[11] = b1;
 	IIR_Notch.pCoeffs[12] = b2;
 	IIR_Notch.pCoeffs[13] = a1;
 	IIR_Notch.pCoeffs[14] = a2;
-*/
+	/*
 	IIR_Notch.pCoeffs[10] = 1;
 	IIR_Notch.pCoeffs[11] = 0;
 	IIR_Notch.pCoeffs[12] = 0;
 	IIR_Notch.pCoeffs[13] = 0;
 	IIR_Notch.pCoeffs[14] = 0;
+*/
+	// Treble
+	//
+	f0 = 6000;
+	A = powf(10.0,(ts.treble_gain/40.0)); // gain ranges from -12 to 12
+	S = 0.5; // shelf slope, 1 is maximum value
+	alpha = sin(w0) / 2 * sqrt( (A + 1/A) * (1/S - 1) + 2 );
+	cosw0 = cos(w0);
+	twoAa = 2 * sqrt(A) * alpha;
+	// highShelf
+	//
+	b0 = A * 		( (A + 1) + (A - 1) * cosw0 + twoAa );
+	b1 = - 2 * A * 	( (A - 1) + (A + 1) * cosw0 		);
+	b2 = A * 		( (A + 1) + (A - 1) * cosw0 - twoAa );
+	a0 = 	 		  (A + 1) - (A - 1) * cosw0 + twoAa ;
+	a1 = - 2 * 		( (A - 1) - (A + 1) * cosw0 		); // already negated!
+	a2 = twoAa 		- (A + 1) + (A - 1) * cosw0; // already negated!
 
-	IIR_Notch.pCoeffs[15] = 1;
-	IIR_Notch.pCoeffs[16] = 0;
-	IIR_Notch.pCoeffs[17] = 0;
-	IIR_Notch.pCoeffs[18] = 0;
-	IIR_Notch.pCoeffs[19] = 0;
+	// scaling the coefficients for gain
+	b0 = b0/a0;
+	b1 = b1/a0;
+	b2 = b2/a0;
+	a1 = a1/a0;
+	a2 = a2/a0;
 
+	IIR_Notch.pCoeffs[15] = b0;
+	IIR_Notch.pCoeffs[16] = b1;
+	IIR_Notch.pCoeffs[17] = b2;
+	IIR_Notch.pCoeffs[18] = a1;
+	IIR_Notch.pCoeffs[19] = a2;
 
-
-
+	/*	IIR_Notch.pCoeffs[15] = 1;
+		IIR_Notch.pCoeffs[16] = 0;
+		IIR_Notch.pCoeffs[17] = 0;
+		IIR_Notch.pCoeffs[18] = 0;
+		IIR_Notch.pCoeffs[19] = 0;
+	*/
 	/*+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-	 * End of Manual Notch coefficient calculation and setting
+	 * End of coefficient calculation and setting for cascaded biquad
 	 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++*/
 	//
 	// Initialize high-pass filter used for the FM noise squelch
@@ -1933,7 +1960,7 @@ static void audio_rx_processor(int16_t *src, int16_t *dst, int16_t size)
 
 	} // end NOT in FM mode
 	else	{		// it is FM - we don't do any decimation, interpolation, filtering or any other processing - just rescale audio amplitude
-		if(ts.misc_flags2 & MISC_FLAGS2_FM_MODE_DEVIATION_5KHZ)		// is this 5 kHz FM mode?  If so, scale down (reduce) audio to normalize
+		if(ts.flags2 & FLAGS2_FM_MODE_DEVIATION_5KHZ)		// is this 5 kHz FM mode?  If so, scale down (reduce) audio to normalize
 			arm_scale_f32((float32_t *)ads.a_buffer,(float32_t)FM_RX_SCALING_5K, (float32_t *)ads.b_buffer, psize/2);	// apply fixed amount of audio gain scaling to make the audio levels correct along with AGC
 		else		// it is 2.5 kHz FM mode:  Scale audio level accordingly
 			arm_scale_f32((float32_t *)ads.a_buffer,(float32_t)FM_RX_SCALING_2K5, (float32_t *)ads.b_buffer, psize/2);	// apply fixed amount of audio gain scaling to make the audio levels correct along with AGC
@@ -2442,7 +2469,7 @@ static void audio_tx_processor(int16_t *src, int16_t *dst, int16_t size)
 						// and then a gradual roll-off toward the high end.  The net result is a very flat (to better than 1dB) response
 						// over the 275-2500 Hz range.
 						//
-			if(!(ts.misc_flags1 & MISC_FLAGS1_SSB_TX_FILTER_DISABLE))	// Do the audio filtering *IF* it is to be enabled
+			if(!(ts.flags1 & FLAGS1_SSB_TX_FILTER_DISABLE))	// Do the audio filtering *IF* it is to be enabled
 				arm_iir_lattice_f32(&IIR_TXFilter, (float *)ads.a_buffer, (float *)ads.a_buffer, size/2);
 		}
 		//
@@ -2521,7 +2548,7 @@ static void audio_tx_processor(int16_t *src, int16_t *dst, int16_t size)
 			// and then a gradual roll-off toward the high end.  The net result is a very flat (to better than 1dB) response
 			// over the 275-2500 Hz range.
 			//
-			if(!(ts.misc_flags1 & MISC_FLAGS1_AM_TX_FILTER_DISABLE))	// Do the audio filtering *IF* it is to be enabled
+			if(!(ts.flags1 & FLAGS1_AM_TX_FILTER_DISABLE))	// Do the audio filtering *IF* it is to be enabled
 				arm_iir_lattice_f32(&IIR_TXFilter, (float *)ads.a_buffer, (float *)ads.a_buffer, size/2);	// this is the 275-2500-ish bandpass filter with low-end pre-emphasis
 			//
 			// This is a phase-added 0-90 degree Hilbert transformer that also does low-pass and high-pass filtering
@@ -2630,7 +2657,7 @@ static void audio_tx_processor(int16_t *src, int16_t *dst, int16_t size)
 	else if((ts.dmod_mode == DEMOD_FM) && (ts.iq_freq_mode) && (!ts.tune))	{	//	Is it in FM mode *AND* is frequency translation active and NOT in TUNE mode?  (No FM possible unless in frequency translate mode!)
 		// Fill I and Q buffers with left channel(same as right)
 		//
-		if(ts.misc_flags2 & MISC_FLAGS2_FM_MODE_DEVIATION_5KHZ)	// are we in 5 kHz modulation mode?
+		if(ts.flags2 & FLAGS2_FM_MODE_DEVIATION_5KHZ)	// are we in 5 kHz modulation mode?
 			fm_mod_mult = 2;	// yes - multiply all modulation factors by 2
 		else
 			fm_mod_mult = 1;	// not in 5 kHz mode - used default (2.5 kHz) modulation factors
